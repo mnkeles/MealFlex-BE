@@ -1,0 +1,3 @@
+package com.mealflex.audit.entity;
+import jakarta.persistence.*; import lombok.*; import org.slf4j.MDC; import java.time.Instant;
+@Entity @Table(name="audit_logs") @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder public class AuditLog { @Id @GeneratedValue(strategy=GenerationType.IDENTITY) private Long id; private Long actorId; private String action; private String entityType; private Long entityId; @Column(columnDefinition="TEXT") private String oldValue; @Column(columnDefinition="TEXT") private String newValue; @Column(length=100) private String correlationId; private Instant timestamp; @PrePersist void attachCorrelationId(){if(correlationId==null||correlationId.isBlank())correlationId=MDC.get("correlationId");} }

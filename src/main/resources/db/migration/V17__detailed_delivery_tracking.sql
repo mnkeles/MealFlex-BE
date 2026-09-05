@@ -1,0 +1,13 @@
+ALTER TABLE subscription_deliveries ADD COLUMN status_changed_at TIMESTAMPTZ;
+ALTER TABLE subscription_deliveries ADD COLUMN preparation_started_at TIMESTAMPTZ;
+ALTER TABLE subscription_deliveries ADD COLUMN in_transit_at TIMESTAMPTZ;
+ALTER TABLE subscription_deliveries ADD COLUMN estimated_delivery_at TIMESTAMPTZ;
+ALTER TABLE subscription_deliveries ADD COLUMN delivery_attempted_at TIMESTAMPTZ;
+ALTER TABLE subscription_deliveries ADD COLUMN failure_reason VARCHAR(500);
+ALTER TABLE subscription_deliveries ADD COLUMN receiver_name VARCHAR(150);
+ALTER TABLE subscription_deliveries ADD COLUMN proof_photo_url VARCHAR(500);
+ALTER TABLE subscription_deliveries ADD COLUMN delivery_code VARCHAR(6);
+ALTER TABLE subscription_deliveries ADD COLUMN delay_minutes INTEGER;
+ALTER TABLE subscription_deliveries ADD COLUMN courier_latitude DECIMAL(10,7);
+ALTER TABLE subscription_deliveries ADD COLUMN courier_longitude DECIMAL(10,7);
+UPDATE subscription_deliveries SET status_changed_at=COALESCE(updated_at,created_at), delivery_code=LPAD(((id*7919)%10000)::TEXT,4,'0') WHERE delivery_code IS NULL;

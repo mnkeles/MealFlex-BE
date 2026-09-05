@@ -1,0 +1,1 @@
+package com.mealflex.platform.repository; import com.mealflex.platform.entity.ProductAnalyticsEvent; import org.springframework.data.jpa.repository.JpaRepository; public interface ProductAnalyticsEventRepository extends JpaRepository<ProductAnalyticsEvent,Long>{}

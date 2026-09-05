@@ -1,0 +1,3 @@
+package com.mealflex.delivery.entity;
+import com.mealflex.common.entity.BaseEntity; import jakarta.persistence.*; import lombok.*; import java.time.Instant;
+@Entity @Table(name="delivery_proofs") @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder public class DeliveryProof extends BaseEntity { @OneToOne(fetch=FetchType.LAZY) @JoinColumn(name="delivery_id",nullable=false,unique=true) private SubscriptionDelivery delivery; @Column(name="storage_name",nullable=false) private String storageName; @Column(name="content_type",nullable=false) private String contentType; @Column(name="file_size",nullable=false) private long fileSize; @Column(name="expires_at",nullable=false) private Instant expiresAt; }

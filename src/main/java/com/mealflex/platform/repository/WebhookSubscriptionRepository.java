@@ -1,0 +1,1 @@
+package com.mealflex.platform.repository; import com.mealflex.platform.entity.WebhookSubscription; import org.springframework.data.jpa.repository.JpaRepository; public interface WebhookSubscriptionRepository extends JpaRepository<WebhookSubscription,Long>{}

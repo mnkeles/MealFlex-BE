@@ -1,0 +1,2 @@
+package com.mealflex.delivery.repository; import com.mealflex.delivery.entity.Courier; import org.springframework.data.jpa.repository.JpaRepository; import java.util.*;
+public interface CourierRepository extends JpaRepository<Courier,Long> { List<Courier> findByStoreIdAndDeletedAtIsNull(Long storeId); Optional<Courier> findByIdAndStoreIdAndDeletedAtIsNull(Long id,Long storeId); Optional<Courier> findByStoreIdAndEmailIgnoreCaseAndDeletedAtIsNull(Long storeId,String email); }

@@ -1,0 +1,1 @@
+package com.mealflex.platform.repository; import com.mealflex.platform.entity.IntegrationApiKey; import org.springframework.data.jpa.repository.JpaRepository; public interface IntegrationApiKeyRepository extends JpaRepository<IntegrationApiKey,Long>{}

@@ -1,0 +1,1 @@
+package com.mealflex.platform.repository; import com.mealflex.platform.entity.FeatureFlag; import org.springframework.data.jpa.repository.JpaRepository; import java.util.*; public interface FeatureFlagRepository extends JpaRepository<FeatureFlag,Long>{Optional<FeatureFlag> findByFlagKey(String key);}

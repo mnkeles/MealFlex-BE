@@ -1,0 +1,3 @@
+package com.mealflex.growth.controller;
+import com.mealflex.growth.service.CustomerGrowthService; import com.mealflex.security.UserPrincipal; import lombok.RequiredArgsConstructor; import org.springframework.http.ResponseEntity; import org.springframework.security.core.annotation.AuthenticationPrincipal; import org.springframework.web.bind.annotation.*; import java.util.*;
+@RestController @RequestMapping("/v1/customer/insights") @RequiredArgsConstructor public class CustomerGrowthController { private final CustomerGrowthService service; @GetMapping public ResponseEntity<Map<String,Object>> get(@AuthenticationPrincipal UserPrincipal p){return ResponseEntity.ok(service.insight(p.getId()));} }

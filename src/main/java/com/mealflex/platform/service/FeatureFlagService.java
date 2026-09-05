@@ -1,0 +1,9 @@
+package com.mealflex.platform.service;
+import com.mealflex.common.exception.BusinessException; import com.mealflex.platform.entity.*; import com.mealflex.platform.repository.*; import lombok.RequiredArgsConstructor; import org.springframework.stereotype.Service; import org.springframework.transaction.annotation.Transactional; import java.time.*; import java.util.*;
+@Service @RequiredArgsConstructor public class FeatureFlagService { private final FeatureFlagRepository flags; private final ProductAnalyticsEventRepository events;
+ @Transactional(readOnly=true) public Map<String,Boolean> publicFlags(Long actorId){Map<String,Boolean> result=new HashMap<>();for(FeatureFlag flag:flags.findAll())result.put(flag.getFlagKey(),flag.isEnabled()&&bucket(actorId,flag.getFlagKey())<flag.getRolloutPercent());return result;}
+ @Transactional(readOnly=true) public List<FeatureFlag> list(){return flags.findAll();}
+ @Transactional public FeatureFlag upsert(String key,String description,boolean enabled,int rollout){if(key==null||!key.matches("[a-z0-9_.-]{3,100}"))throw new BusinessException("INVALID_FEATURE_FLAG","Feature flag anahtarı geçersiz.");if(rollout<0||rollout>100)throw new BusinessException("INVALID_ROLLOUT","Yayın oranı 0-100 arasında olmalıdır.");FeatureFlag f=flags.findByFlagKey(key).orElse(FeatureFlag.builder().flagKey(key).build());f.setDescription(description);f.setEnabled(enabled);f.setRolloutPercent(rollout);return flags.save(f);}
+ @Transactional public void track(Long actorId,String name,String properties){if(name==null||!name.matches("[a-z0-9_.-]{3,100}"))throw new BusinessException("INVALID_ANALYTICS_EVENT","Olay adı geçersiz.");events.save(ProductAnalyticsEvent.builder().eventName(name).actorId(actorId).propertiesJson(properties==null?"{}":properties).occurredAt(Instant.now()).build());}
+ private int bucket(Long id,String key){return Math.floorMod(Objects.hash(id==null?0:id,key),100);}
+}
