@@ -221,7 +221,8 @@ public class MenuService {
             boolean hasActive = subscriptionRepository.existsByMenuIdAndStatusIn(menuId,
                     List.of(com.mealflex.subscription.entity.SubscriptionStatus.ACTIVE,
                             com.mealflex.subscription.entity.SubscriptionStatus.APPROVED,
-                            com.mealflex.subscription.entity.SubscriptionStatus.PENDING_APPROVAL));
+                            com.mealflex.subscription.entity.SubscriptionStatus.PENDING_APPROVAL,
+                            com.mealflex.subscription.entity.SubscriptionStatus.POSTPONED));
             if (hasActive) {
                 throw new BusinessException("MENU_HAS_ACTIVE_SUBSCRIPTIONS",
                         "Aktif aboneliği olan menü pasife alınamaz.", HttpStatus.CONFLICT);
@@ -241,7 +242,8 @@ public class MenuService {
         boolean hasActive = subscriptionRepository.existsByMenuIdAndStatusIn(menuId,
                 List.of(com.mealflex.subscription.entity.SubscriptionStatus.ACTIVE,
                         com.mealflex.subscription.entity.SubscriptionStatus.APPROVED,
-                        com.mealflex.subscription.entity.SubscriptionStatus.PENDING_APPROVAL));
+                        com.mealflex.subscription.entity.SubscriptionStatus.PENDING_APPROVAL,
+                        com.mealflex.subscription.entity.SubscriptionStatus.POSTPONED));
         if (hasActive) {
             throw new BusinessException("MENU_HAS_ACTIVE_SUBSCRIPTIONS",
                     "Aktif aboneliği olan menü silinemez.", HttpStatus.CONFLICT);
@@ -271,7 +273,7 @@ public class MenuService {
         if (menuIds == null || menuIds.isEmpty()) throw new BusinessException("EMPTY_MENU_SELECTION", "En az bir menü seçin.");
         List<Menu> menus = menuIds.stream().distinct().map(id -> getMenuForSeller(userId, id)).toList();
         if (!active && menus.stream().anyMatch(menu -> subscriptionRepository.existsByMenuIdAndStatusIn(menu.getId(),
-                List.of(com.mealflex.subscription.entity.SubscriptionStatus.ACTIVE, com.mealflex.subscription.entity.SubscriptionStatus.APPROVED, com.mealflex.subscription.entity.SubscriptionStatus.PENDING_APPROVAL))))
+                List.of(com.mealflex.subscription.entity.SubscriptionStatus.ACTIVE, com.mealflex.subscription.entity.SubscriptionStatus.APPROVED, com.mealflex.subscription.entity.SubscriptionStatus.PENDING_APPROVAL, com.mealflex.subscription.entity.SubscriptionStatus.POSTPONED))))
             throw new BusinessException("MENU_HAS_ACTIVE_SUBSCRIPTIONS", "Aktif aboneliği olan menüler pasife alınamaz.", HttpStatus.CONFLICT);
         menus.forEach(menu -> menu.setActive(active)); menuRepository.saveAll(menus); return menus.stream().map(this::toResponse).toList();
     }

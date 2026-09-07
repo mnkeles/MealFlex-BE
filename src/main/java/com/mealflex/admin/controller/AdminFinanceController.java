@@ -35,5 +35,15 @@ public class AdminFinanceController {
     public List<java.util.Map<String,Object>> reconciliations(){return financeReconciliationService.list().stream().map(this::reconciliation).toList();}
     @PostMapping("/finance-reconciliations/{id}/resolve") @Operation(summary="Mutabakat farkını inceleyip kapat")
     public java.util.Map<String,Object> resolveReconciliation(@AuthenticationPrincipal UserPrincipal principal,@PathVariable Long id,@RequestBody java.util.Map<String,String> request){String note=request.getOrDefault("note","").trim();if(note.isBlank())throw new com.mealflex.common.exception.BusinessException("RESOLUTION_NOTE_REQUIRED","Mutabakat çözüm notu zorunludur.");return reconciliation(financeReconciliationService.resolve(principal.getId(),id,note));}
-    private java.util.Map<String,Object> reconciliation(FinanceReconciliation item){return java.util.Map.of("id",item.getId(),"date",item.getReconciliationDate(),"providerCollectedAmount",item.getProviderCollectedAmount(),"ledgerCollectedAmount",item.getLedgerCollectedAmount(),"paidPayoutAmount",item.getPaidPayoutAmount(),"discrepancyAmount",item.getDiscrepancyAmount(),"status",item.getStatus(),"assignedAdmin",item.getAssignedAdmin()==null?"":item.getAssignedAdmin().getFirstName()+" "+item.getAssignedAdmin().getLastName(),"resolutionNote",item.getResolutionNote()==null?"":item.getResolutionNote());}
+    private java.util.Map<String,Object> reconciliation(FinanceReconciliation item) {
+        java.util.Map<String,Object> result = new java.util.LinkedHashMap<>();
+        result.put("id", item.getId()); result.put("date", item.getReconciliationDate());
+        result.put("providerCollectedAmount", item.getProviderCollectedAmount());
+        result.put("ledgerCollectedAmount", item.getLedgerCollectedAmount());
+        result.put("paidPayoutAmount", item.getPaidPayoutAmount());
+        result.put("discrepancyAmount", item.getDiscrepancyAmount()); result.put("status", item.getStatus());
+        result.put("assignedAdmin", item.getAssignedAdmin()==null ? "" : item.getAssignedAdmin().getFirstName()+" "+item.getAssignedAdmin().getLastName());
+        result.put("resolutionNote", item.getResolutionNote()==null ? "" : item.getResolutionNote());
+        return result;
+    }
 }

@@ -35,7 +35,7 @@ class FinanceReconciliationServiceTest {
     @InjectMocks FinanceReconciliationService service;
 
     @Test
-    void dailyReconciliationUsesPaidLedgerMinusRefundsAndKeepsMatchedRecord() {
+    void missingProviderEvidenceCannotProduceMatchedRecord() {
         LocalDate date = LocalDate.of(2026, 8, 29);
         Instant paidAt = date.atTime(12, 0).atZone(ZoneId.of("Europe/Istanbul")).toInstant();
         Payment payment = Payment.builder().grossAmount(new BigDecimal("100.00")).refundedAmount(new BigDecimal("25.00"))
@@ -48,9 +48,9 @@ class FinanceReconciliationServiceTest {
         FinanceReconciliation result = service.reconcile(date);
 
         assertThat(result.getLedgerCollectedAmount()).isEqualByComparingTo("75.00");
-        assertThat(result.getProviderCollectedAmount()).isEqualByComparingTo("75.00");
-        assertThat(result.getDiscrepancyAmount()).isEqualByComparingTo("0.00");
-        assertThat(result.getStatus()).isEqualTo("MATCHED");
+        assertThat(result.getProviderCollectedAmount()).isNull();
+        assertThat(result.getDiscrepancyAmount()).isNull();
+        assertThat(result.getStatus()).isEqualTo("PROVIDER_UNAVAILABLE");
     }
 
     @Test
@@ -70,5 +70,16 @@ class FinanceReconciliationServiceTest {
         assertThat(result.getAssignedAdmin()).isSameAs(admin);
         assertThat(result.getResolutionNote()).isEqualTo("Banka farkı incelendi");
         verify(audits).save(argThat(audit -> audit.getAction().equals("FINANCE_RECONCILIATION_RESOLVED") && audit.getEntityId().equals(30L)));
+    }
+
+    @Test
+    void unknownProviderCannotBeManuallyMarkedResolved() {
+        FinanceReconciliation item = FinanceReconciliation.builder().status("PROVIDER_UNAVAILABLE").build();
+        when(reconciliations.findById(30L)).thenReturn(Optional.of(item));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.resolve(9L, 30L, "Kontrol edildi"))
+                .isInstanceOf(com.mealflex.common.exception.BusinessException.class)
+                .hasMessageContaining("Sağlayıcı verisi");
+        verify(reconciliations, never()).save(any());
+        verifyNoInteractions(users, audits);
     }
 }

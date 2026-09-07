@@ -19,6 +19,7 @@ public class SellerPayoutService {
     private final StoreRepository storeRepository; private final PaymentRepository paymentRepository;
     private final SellerPayoutRepository payoutRepository; private final SellerPayoutItemRepository itemRepository;
     private final SubscriptionDeliveryRepository deliveryRepository;
+    private final PaymentAllocationRepository allocationRepository;
 
     /** Eski toplu haftalık ödeme planı, teslimat sonrası aktarım kuralıyla devre dışıdır. */
     @Transactional
@@ -43,6 +44,18 @@ public class SellerPayoutService {
         });
     }
 
+    /** İptal/iade sonrasında daha önce teslim edilmiş haftaların kalan hakedişini kontrol eder. */
+    @Transactional
+    public void recheckAfterCancellation(Long subscriptionId) {
+        java.util.Set<LocalDate> checkedWeeks = new java.util.HashSet<>();
+        for (SubscriptionDelivery delivery : deliveryRepository.findBySubscriptionId(subscriptionId)) {
+            if (delivery.getStatus() == DeliveryStatus.DELIVERED && checkedWeeks.add(
+                    delivery.getDeliveryDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)))) {
+                scheduleAfterFinalWeeklyDelivery(delivery);
+            }
+        }
+    }
+
     /** Haftanın son teslimatı başarıyla tamamlandıktan bir saat sonra aktarımı planlar. */
     @Transactional
     public void scheduleAfterFinalWeeklyDelivery(SubscriptionDelivery delivery) {
@@ -50,14 +63,23 @@ public class SellerPayoutService {
         LocalDate end = start.plusDays(6);
         List<SubscriptionDelivery> weekly = deliveryRepository.findBySubscriptionId(delivery.getSubscription().getId()).stream()
                 .filter(item -> !item.getDeliveryDate().isBefore(start) && !item.getDeliveryDate().isAfter(end))
-                .filter(item -> item.getStatus() != DeliveryStatus.CANCELLED)
+                .filter(item -> item.getStatus() != DeliveryStatus.CANCELLED && item.getStatus() != DeliveryStatus.SKIPPED)
                 .toList();
         if (weekly.isEmpty() || weekly.stream().anyMatch(item -> item.getStatus() != DeliveryStatus.DELIVERED)) return;
-        boolean isLast = weekly.stream().noneMatch(item -> item.getDeliveryDate().isAfter(delivery.getDeliveryDate()));
-        if (!isLast) return;
-        Payment payment = paymentRepository.findByIdempotencyKey("subscription-week-charge-" + delivery.getSubscription().getId() + "-" + start).orElse(null);
-        if (payment == null || payment.getStatus() != PaymentStatus.SUCCEEDED || itemRepository.existsByPaymentId(payment.getId())) return;
-        Instant scheduledAt = delivery.getDeliveredAt().plus(Duration.ofHours(1));
+        // A previous day's delivery may be confirmed after the calendar's last delivery.
+        if (weekly.stream().anyMatch(item -> item.getDeliveredAt() == null)) return;
+        Instant scheduledAt = weekly.stream().map(SubscriptionDelivery::getDeliveredAt)
+                .max(Instant::compareTo).orElseThrow().plus(Duration.ofHours(1));
+        for (Payment candidate : paymentRepository.findBySubscriptionIdOrderByCreatedAtDesc(delivery.getSubscription().getId())) {
+        Payment payment = paymentRepository.findByIdForUpdate(candidate.getId()).orElse(null);
+        if (payment == null || (payment.getStatus() != PaymentStatus.SUCCEEDED
+                && payment.getStatus() != PaymentStatus.PARTIALLY_REFUNDED)
+                || payment.getNetAmount().signum() <= 0 || itemRepository.existsByPaymentId(payment.getId())) continue;
+        List<PaymentAllocation> allocations = allocationRepository.findByPaymentId(payment.getId());
+        if (allocations.isEmpty() || allocations.stream().anyMatch(a ->
+                a.getDelivery().getDeliveryDate().isBefore(start) || a.getDelivery().getDeliveryDate().isAfter(end)
+                || (a.getDelivery().getStatus() != DeliveryStatus.DELIVERED
+                    && a.getReturnedAmount().compareTo(a.getAmount()) < 0))) continue;
         SellerPayout payout = payoutRepository.save(SellerPayout.builder().store(delivery.getSubscription().getStore()).status("SCHEDULED")
                 .periodStart(start).periodEnd(end).currency(payment.getCurrency()).grossAmount(payment.getGrossAmount())
                 .commissionAmount(payment.getCommissionAmount().add(payment.getCommissionTaxAmount())).refundAmount(payment.getRefundedAmount())
@@ -65,6 +87,7 @@ public class SellerPayoutService {
         itemRepository.save(SellerPayoutItem.builder().payout(payout).payment(payment).itemType("WEEKLY_SALE")
                 .grossAmount(payment.getGrossAmount()).commissionAmount(payment.getCommissionAmount().add(payment.getCommissionTaxAmount()))
                 .netAmount(payment.getNetAmount()).currency(payment.getCurrency()).build());
+        }
     }
     private BigDecimal sum(List<Payment> payments, java.util.function.Function<Payment,BigDecimal> mapper) { return payments.stream().map(mapper).reduce(new BigDecimal("0.00"), BigDecimal::add); }
 }

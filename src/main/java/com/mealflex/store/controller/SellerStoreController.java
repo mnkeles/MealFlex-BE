@@ -126,6 +126,23 @@ public class SellerStoreController {
         return ResponseEntity.ok(storeService.getBusinessHours(storeId));
     }
 
+    @PutMapping("/stores/{storeId}/delivery-slots")
+    @Operation(summary = "Müşterinin seçebileceği teslimat saatlerini ayarla")
+    public ResponseEntity<List<DeliverySlotResponse>> setDeliverySlots(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable Long storeId,
+            @Valid @RequestBody List<DeliverySlotRequest> requests) {
+        return ResponseEntity.ok(storeService.setDeliverySlotsForStore(principal.getId(), storeId, requests));
+    }
+
+    @GetMapping("/stores/{storeId}/delivery-slots")
+    @Operation(summary = "Tanımlı teslimat saatlerini getir")
+    public ResponseEntity<List<DeliverySlotResponse>> getDeliverySlots(
+            @AuthenticationPrincipal UserPrincipal principal, @PathVariable Long storeId) {
+        storeService.getStoreByIdForSeller(principal.getId(), storeId);
+        return ResponseEntity.ok(storeService.getDeliverySlots(storeId));
+    }
+
     @GetMapping("/stores/{storeId}/distance-rules")
     @Operation(summary = "Mesafe kurallarını getir")
     public ResponseEntity<List<DistanceRuleResponse>> getDistanceRules(

@@ -31,6 +31,7 @@ class SubscriptionChangeServiceTest {
     @Mock SubscriptionRepository subscriptionRepository; @Mock SubscriptionDeliveryRepository deliveryRepository;
     @Mock SubscriptionFreezeRepository freezeRepository; @Mock SubscriptionAdjustmentRepository adjustmentRepository;
     @Mock PaymentService paymentService; @Mock NotificationRepository notificationRepository; @Mock AuditLogRepository auditLogRepository;
+    @Mock com.mealflex.payment.service.SellerPayoutService sellerPayoutService;
     @InjectMocks SubscriptionChangeService service;
     private Subscription subscription; private SubscriptionDelivery delivery;
 
@@ -45,6 +46,7 @@ class SubscriptionChangeServiceTest {
         delivery = SubscriptionDelivery.builder().subscription(subscription).menu(menu).address(address).deliveryDate(LocalDate.now().plusDays(3)).deliveryTime(LocalTime.NOON).personCount(2).status(DeliveryStatus.SCHEDULED).build(); delivery.setId(5L);
         lenient().when(deliveryRepository.findByIdForChange(5L)).thenReturn(Optional.of(delivery));
         lenient().when(adjustmentRepository.existsByDeliveryId(5L)).thenReturn(false);
+        lenient().when(paymentService.deliveryAdjustmentValue(eq(subscription), any())).thenReturn(new BigDecimal("100.00"));
     }
 
     @Test void skipUpdatesOperationAndCreatesFinancialAdjustment() {

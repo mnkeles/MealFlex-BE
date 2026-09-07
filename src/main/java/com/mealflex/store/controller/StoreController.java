@@ -78,6 +78,15 @@ public class StoreController {
         return ResponseEntity.ok(storeService.getBusinessHours(id));
     }
 
+    @GetMapping("/{id}/delivery-times")
+    @Operation(summary = "Abonelik döneminin tüm hizmet günlerine uygun teslimat saatleri")
+    public ResponseEntity<List<java.time.LocalTime>> getDeliveryTimes(
+            @PathVariable Long id,
+            @RequestParam java.time.LocalDate startDate,
+            @RequestParam java.time.LocalDate endDate) {
+        return ResponseEntity.ok(storeService.getDeliveryTimesForPeriod(id, startDate, endDate));
+    }
+
     @GetMapping("/discovery-metadata")
     @Operation(summary = "Keşif kategori, diyet ve alerjen seçenekleri")
     public ResponseEntity<java.util.Map<String, java.util.Set<String>>> getDiscoveryMetadata() {

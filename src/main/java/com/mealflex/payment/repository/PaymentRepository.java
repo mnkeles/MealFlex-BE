@@ -5,6 +5,9 @@ import org.springframework.data.repository.query.Param;
 import java.time.Instant;
 import java.util.*;
 public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpecificationExecutor<Payment> {
+    @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Payment p where p.id = :id")
+    Optional<Payment> findByIdForUpdate(@Param("id") Long id);
     Optional<Payment> findByIdempotencyKey(String key);
     Optional<Payment> findFirstBySubscriptionIdOrderByCreatedAtDesc(Long subscriptionId);
     List<Payment> findBySubscriptionIdOrderByCreatedAtDesc(Long subscriptionId);

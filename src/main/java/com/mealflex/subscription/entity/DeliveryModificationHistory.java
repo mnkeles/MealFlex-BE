@@ -20,6 +20,8 @@ public class DeliveryModificationHistory extends BaseEntity {
     @ManyToOne(fetch=FetchType.LAZY) @JoinColumn(name="new_menu_id") private Menu newMenu;
     private LocalTime oldDeliveryTime; private LocalTime newDeliveryTime; private Integer oldPersonCount; private Integer newPersonCount;
     @Column(nullable=false,precision=12,scale=2) private BigDecimal priceDifference;
+    /** Reduction applied to a future charge, rather than crediting money not yet collected. */
+    @Column(nullable=false,precision=12,scale=2) @Builder.Default private BigDecimal deferredReduction = BigDecimal.ZERO;
     @Enumerated(EnumType.STRING) @Column(name="request_status", nullable=false) @Builder.Default
     private DeliveryModificationRequestStatus requestStatus = DeliveryModificationRequestStatus.APPLIED;
     @Column(name="decision_reason", length=500) private String decisionReason;

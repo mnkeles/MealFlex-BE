@@ -31,6 +31,47 @@ class MenuMetadataServiceTest {
     @Mock MenuVersionService menuVersionService;
     @InjectMocks MenuService menuService;
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"toggle", "delete", "bulk"})
+    void postponedSubscriptionPreventsMenuRemoval(String action) {
+        Store store = Store.builder().name("Owned").build(); store.setId(5L);
+        Menu menu = Menu.builder().store(store).name("Menu").active(true).build(); menu.setId(7L);
+        when(storeRepository.findAllBySellerUserIdAndDeletedAtIsNull(9L)).thenReturn(List.of(store));
+        when(menuRepository.findById(7L)).thenReturn(Optional.of(menu));
+        when(subscriptionRepository.existsByMenuIdAndStatusIn(eq(7L), any()))
+                .thenAnswer(invocation -> ((List<?>) invocation.getArgument(1))
+                        .contains(com.mealflex.subscription.entity.SubscriptionStatus.POSTPONED));
+        assertThrows(BusinessException.class, () -> {
+            if (action.equals("toggle")) menuService.toggleActive(9L, 7L);
+            else if (action.equals("delete")) menuService.deleteMenu(9L, 7L);
+            else menuService.setBulkActive(9L, List.of(7L), false);
+        });
+        assertThat(menu.isActive()).isTrue();
+        assertThat(menu.getDeletedAt()).isNull();
+        verify(menuRepository, never()).save(any());
+        verify(menuRepository, never()).saveAll(any());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"update", "delete", "copy", "toggle"})
+    void foreignMenuCannotBeModified(String action) {
+        Store owned = Store.builder().name("Owned").build(); owned.setId(5L);
+        Store foreign = Store.builder().name("Foreign").build(); foreign.setId(6L);
+        Menu menu = Menu.builder().store(foreign).name("Private").active(true).build(); menu.setId(7L);
+        when(storeRepository.findAllBySellerUserIdAndDeletedAtIsNull(9L)).thenReturn(List.of(owned));
+        when(menuRepository.findById(7L)).thenReturn(Optional.of(menu));
+        assertThrows(BusinessException.class, () -> {
+            switch (action) {
+                case "update" -> menuService.updateMenu(9L, 7L, new CreateMenuRequest());
+                case "delete" -> menuService.deleteMenu(9L, 7L);
+                case "copy" -> menuService.copyMenu(9L, 7L);
+                default -> menuService.toggleActive(9L, 7L);
+            }
+        });
+        verify(menuRepository, never()).save(any());
+        verifyNoInteractions(menuItemRepository, menuGalleryImageRepository, menuVersionService, subscriptionRepository);
+    }
+
     @Test
     void unknownDietTagIsRejected() {
         CreateMenuRequest request = new CreateMenuRequest();

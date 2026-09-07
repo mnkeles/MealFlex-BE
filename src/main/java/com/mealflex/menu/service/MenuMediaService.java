@@ -138,6 +138,9 @@ public class MenuMediaService {
     }
 
     private void validate(MultipartFile file) {
+        if (file == null || file.getContentType() == null) {
+            throw new BusinessException("INVALID_IMAGE", "Geçerli bir görsel seçmelisiniz.");
+        }
         String extension = ALLOWED_TYPES.get(file.getContentType());
         if (file.isEmpty() || extension == null) {
             throw new BusinessException("INVALID_IMAGE", "Yalnızca JPG, PNG veya WEBP görsel yükleyebilirsiniz.");
@@ -156,7 +159,16 @@ public class MenuMediaService {
             Files.createDirectories(directory);
             Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException exception) {
+            removeFile(target);
             throw new BusinessException("IMAGE_UPLOAD_FAILED", "Menü fotoğrafı kaydedilemedi.");
+        }
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override public void afterCompletion(int status) {
+                            if (status == STATUS_ROLLED_BACK) removeFile(target);
+                        }
+                    });
         }
         return "/api/v1/menus/media/" + menuId + "/" + fileName;
     }
@@ -167,7 +179,21 @@ public class MenuMediaService {
         Path directory = directory(menuId);
         Path target = directory.resolve(fileName).normalize();
         if (!target.startsWith(directory)) return;
-        try { Files.deleteIfExists(target); } catch (IOException ignored) { }
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override public void afterCommit() { removeFile(target); }
+                    });
+        } else {
+            removeFile(target);
+        }
+    }
+
+    private void removeFile(Path target) {
+        try { Files.deleteIfExists(target); } catch (IOException exception) {
+            org.slf4j.LoggerFactory.getLogger(MenuMediaService.class)
+                    .warn("Menu media cleanup failed for {}", target.getFileName());
+        }
     }
 
     private Path directory(Long menuId) {

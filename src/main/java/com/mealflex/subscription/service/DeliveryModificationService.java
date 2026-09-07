@@ -108,9 +108,9 @@ public class DeliveryModificationService {
                 throw new BusinessException("CHANGE_PAYMENT_FAILED", "Fiyat farkı tahsil edilemedi; değişiklik onaylanmadı.");
             }
         } else if (history.getPriceDifference().signum() < 0) {
-            mealBalanceService.credit(history.getCustomer(), subscription, delivery.getId(), history.getPriceDifference().abs(),
-                    MealBalanceTransactionType.DELIVERY_REDUCTION_CREDIT, "meal-balance-credit-" + fingerprint,
-                    delivery.getDeliveryDate() + " teslimatındaki azaltım için öğün bakiyesi");
+            BigDecimal credited = paymentService.creditPaidReduction(subscription, delivery.getId(), history.getPriceDifference().abs(),
+                    history.getCustomer().getId(), fingerprint);
+            history.setDeferredReduction(history.getPriceDifference().abs().subtract(credited));
         }
         delivery.setDeliveryTime(history.getNewDeliveryTime());
         delivery.setPersonCount(history.getNewPersonCount());
@@ -127,7 +127,8 @@ public class DeliveryModificationService {
         auditLogRepository.save(AuditLog.builder().actorId(sellerUserId).action("DELIVERY_CHANGE_APPROVED").entityType("DELIVERY").entityId(delivery.getId())
                 .newValue("requestId=" + history.getId()).timestamp(Instant.now()).build());
         String balanceMessage = history.getPriceDifference().signum() < 0
-                ? " " + history.getPriceDifference().abs() + " TL öğün bakiyenize eklendi."
+                ? " " + history.getPriceDifference().abs().subtract(history.getDeferredReduction()) + " TL öğün bakiyenize eklendi; "
+                    + history.getDeferredReduction() + " TL henüz tahsil edilmemiş haftalık ücretinizden düşülecek."
                 : history.getPriceDifference().signum() > 0
                 ? " Fiyat farkında önce öğün bakiyeniz, kalan tutarda kayıtlı kartınız kullanıldı."
                 : "";
@@ -182,8 +183,14 @@ public class DeliveryModificationService {
         if (timeChangeMinutes > 60) throw new BusinessException("DELIVERY_TIME_CHANGE_LIMIT", "Teslimat saati mevcut saatten en fazla 1 saat ileri veya geri alınabilir.");
         if (timeChangeMinutes % 15 != 0) throw new BusinessException("DELIVERY_TIME_INTERVAL_INVALID", "Teslimat saati 15 dakikalık aralıklarla değiştirilebilir.");
         businessHourRepository.findByStoreIdAndDayOfWeek(s.getStore().getId(),d.getDeliveryDate().getDayOfWeek()).ifPresent(hour->{ if(!hour.isOpen() || (hour.getOpenTime()!=null&&time.isBefore(hour.getOpenTime())) || (hour.getCloseTime()!=null&&time.isAfter(hour.getCloseTime()))) throw new BusinessException("INVALID_DELIVERY_TIME","Teslimat saati mağazanın çalışma saatleri dışında."); });
-        BigDecimal oldAmount=d.getMenu().getPricePerPerson().multiply(BigDecimal.valueOf(d.getPersonCount())).setScale(2,RoundingMode.HALF_UP);
-        BigDecimal newAmount=menu.getPricePerPerson().multiply(BigDecimal.valueOf(persons)).setScale(2,RoundingMode.HALF_UP);
+        BigDecimal oldAmount=s.getPricePerPerson().multiply(BigDecimal.valueOf(d.getPersonCount())).setScale(2,RoundingMode.HALF_UP);
+        BigDecimal newAmount=s.getPricePerPerson().multiply(BigDecimal.valueOf(persons)).setScale(2,RoundingMode.HALF_UP);
+        if (s.getDiscountAmount() != null && s.getDiscountAmount().signum() > 0) {
+            BigDecimal base = com.mealflex.payment.service.SubscriptionBasePricing.forDate(s,
+                    deliveryRepository.findBySubscriptionId(s.getId()), d.getDeliveryDate());
+            oldAmount = com.mealflex.payment.service.SubscriptionBasePricing.forPersons(s, base, d.getPersonCount());
+            newAmount = com.mealflex.payment.service.SubscriptionBasePricing.forPersons(s, base, persons);
+        }
         return new Prepared(s,d,address,menu,time,persons,oldAmount,newAmount,newAmount.subtract(oldAmount));
     }
     private void validateApprovalWindow(Subscription subscription, SubscriptionDelivery delivery) {

@@ -24,6 +24,7 @@ class StoreDiscoveryServiceTest {
     @Mock SellerProfileRepository sellerProfileRepository;
     @Mock ServiceAreaRepository serviceAreaRepository;
     @Mock BusinessHourRepository businessHourRepository;
+    @Mock StoreDeliverySlotRepository deliverySlotRepository;
     @Mock StoreClosedDateRepository closedDateRepository;
     @Mock StoreDistanceRuleRepository distanceRuleRepository;
     @Mock AddressRepository addressRepository;

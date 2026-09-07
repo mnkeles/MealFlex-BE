@@ -227,7 +227,6 @@ public class SubscriptionService {
                         .failureReason(delivery.getFailureReason())
                         .receiverName(delivery.getReceiverName())
                         .proofPhotoUrl(delivery.getProofPhotoUrl())
-                        .deliveryCode(delivery.getDeliveryCode())
                         .delayMinutes(delivery.getDelayMinutes())
                         .courierLatitude(delivery.getCourierLatitude())
                         .courierLongitude(delivery.getCourierLongitude())

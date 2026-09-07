@@ -23,6 +23,7 @@ import com.mealflex.seller.entity.SellerProfile;
 import com.mealflex.store.entity.Store;
 import com.mealflex.store.entity.StoreStatus;
 import com.mealflex.store.repository.BusinessHourRepository;
+import com.mealflex.store.repository.StoreDeliverySlotRepository;
 import com.mealflex.store.repository.StoreClosedDateRepository;
 import com.mealflex.store.repository.StoreRepository;
 import com.mealflex.store.service.StoreEligibilityService;
@@ -68,6 +69,7 @@ class SubscriptionServiceTest {
     @Mock private AddressRepository addressRepository;
     @Mock private UserRepository userRepository;
     @Mock private BusinessHourRepository businessHourRepository;
+    @Mock private StoreDeliverySlotRepository deliverySlotRepository;
     @Mock private StoreClosedDateRepository closedDateRepository;
     @Mock private SubscriptionDeliveryRepository deliveryRepository;
     @Mock private StoreEligibilityService eligibilityService;
@@ -76,6 +78,7 @@ class SubscriptionServiceTest {
     @Mock private AuditLogRepository auditLogRepository;
     @Mock private SellerStoreAccessService storeAccessService;
     @Mock private PaymentService paymentService;
+    @Mock private com.mealflex.payment.service.SellerPayoutService payoutService;
     @Mock private SubscriptionEventStream eventStream;
     @Mock private MenuVersionService menuVersionService;
     @Mock private CampaignService campaignService;
@@ -95,10 +98,10 @@ class SubscriptionServiceTest {
                 new SubscriptionDeliveryPlanningService(businessHourRepository, closedDateRepository, deliveryRepository);
         SubscriptionRequestPreparationService preparationService = new SubscriptionRequestPreparationService(
                 userRepository, storeRepository, menuRepository, addressRepository, eligibilityService,
-                deliveryPlanningService);
+                deliveryPlanningService, deliverySlotRepository);
         SubscriptionLifecycleService lifecycleService = new SubscriptionLifecycleService(
                 subscriptionRepository, deliveryPlanningService, paymentService, auditLogRepository,
-                notificationRepository, storeAccessService);
+                notificationRepository, storeAccessService, payoutService);
         service = new SubscriptionService(subscriptionRepository, storeRepository, userRepository, deliveryRepository,
                 notificationRepository, reviewRepository, auditLogRepository, storeAccessService, paymentService,
                 eventStream, menuVersionService, campaignService, preparationService, lifecycleService);
@@ -138,6 +141,8 @@ class SubscriptionServiceTest {
         lenient().when(paymentService.chargeForApproval(any(Subscription.class), any()))
                 .thenReturn(Payment.builder().status(PaymentStatus.SUCCEEDED).build());
         lenient().when(businessHourRepository.findByStoreIdOrderByDayOfWeek(20L)).thenReturn(List.of());
+        lenient().when(deliverySlotRepository.existsByStoreIdAndDeliveryTime(eq(20L), any(LocalTime.class)))
+                .thenReturn(true);
         lenient().when(closedDateRepository.findByStoreIdAndClosedDateBetween(20L, startDate, startDate.plusDays(4)))
                 .thenReturn(List.of());
         lenient().when(deliveryRepository

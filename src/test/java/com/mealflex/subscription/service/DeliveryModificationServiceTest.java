@@ -58,7 +58,7 @@ class DeliveryModificationServiceTest {
         store=Store.builder().name("Test Mutfağı").seller(seller).changeCutoffHours(24).maxPersonCount(20).build(); store.setId(2L);
         Address address=Address.builder().user(customer).title("Ev").city("Ankara").district("Çankaya").latitude(BigDecimal.ZERO).longitude(BigDecimal.ZERO).build(); address.setId(3L);
         Menu menu=Menu.builder().store(store).name("Ev Menüsü").pricePerPerson(new BigDecimal("50.00")).active(true).build(); menu.setId(4L);
-        subscription=Subscription.builder().customer(customer).store(store).menu(menu).address(address).status(SubscriptionStatus.ACTIVE).totalAmount(new BigDecimal("500.00")).build(); subscription.setId(6L);
+        subscription=Subscription.builder().customer(customer).store(store).menu(menu).address(address).pricePerPerson(new BigDecimal("50.00")).status(SubscriptionStatus.ACTIVE).totalAmount(new BigDecimal("500.00")).build(); subscription.setId(6L);
         delivery=SubscriptionDelivery.builder().subscription(subscription).address(address).menu(menu).personCount(5).deliveryDate(LocalDate.now().plusDays(4)).deliveryTime(LocalTime.NOON).status(DeliveryStatus.SCHEDULED).build(); delivery.setId(7L);
     }
 
@@ -185,15 +185,26 @@ class DeliveryModificationServiceTest {
     @Test void approvedReductionCreditsMealBalanceInsteadOfRefundingCard() {
         DeliveryModificationHistory history=pendingHistory(LocalTime.NOON,3,new BigDecimal("-100.00")); history.setId(8L);
         when(historyRepository.findById(8L)).thenReturn(Optional.of(history));
+        when(paymentService.creditPaidReduction(subscription, 7L, new BigDecimal("100.00"), 1L, "delivery-change-request-8"))
+                .thenReturn(new BigDecimal("100.00"));
 
         var approved=service.approveRequest(9L,8L);
 
         assertThat(approved.status()).isEqualTo(DeliveryModificationRequestStatus.APPROVED);
         assertThat(subscription.getTotalAmount()).isEqualByComparingTo("400.00");
-        verify(mealBalanceService).credit(eq(customer), eq(subscription), eq(7L), eq(new BigDecimal("100.00")),
-                eq(MealBalanceTransactionType.DELIVERY_REDUCTION_CREDIT), eq("meal-balance-credit-delivery-change-request-8"),
-                contains("öğün bakiyesi"));
+        verify(paymentService).creditPaidReduction(subscription, 7L, new BigDecimal("100.00"), 1L, "delivery-change-request-8");
+        assertThat(history.getDeferredReduction()).isEqualByComparingTo("0.00");
         verify(paymentService, never()).refundForModification(any(), any(), any(), any(), any());
+    }
+
+    @Test void unpaidReductionIsDeferredInsteadOfCreatingSpendableCredit() {
+        DeliveryModificationHistory history = pendingHistory(LocalTime.NOON, 3, new BigDecimal("-100.00")); history.setId(8L);
+        when(historyRepository.findById(8L)).thenReturn(Optional.of(history));
+        when(paymentService.creditPaidReduction(subscription, 7L, new BigDecimal("100.00"), 1L, "delivery-change-request-8"))
+                .thenReturn(BigDecimal.ZERO);
+        service.approveRequest(9L, 8L);
+        assertThat(history.getDeferredReduction()).isEqualByComparingTo("100.00");
+        verifyNoInteractions(mealBalanceService);
     }
 
     @Test void rejectionKeepsTheDeliveryAndFinancialTotalUnchangedAndNotifiesTheCustomer() {

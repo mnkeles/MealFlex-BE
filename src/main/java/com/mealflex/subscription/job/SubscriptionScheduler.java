@@ -90,7 +90,8 @@ public class SubscriptionScheduler {
         for (Subscription sub : active) {
             long deliveryCount = deliveryRepository.countBySubscriptionId(sub.getId());
             boolean hasOutstanding = deliveryRepository.existsBySubscriptionIdAndStatusIn(
-                    sub.getId(), List.of(DeliveryStatus.SCHEDULED, DeliveryStatus.IN_TRANSIT));
+                    sub.getId(), List.of(DeliveryStatus.SCHEDULED, DeliveryStatus.PREPARING,
+                            DeliveryStatus.IN_TRANSIT, DeliveryStatus.DELIVERY_ATTEMPTED));
             if (deliveryCount != sub.getServiceDayCount() || hasOutstanding) {
                 log.warn("Subscription #{} cannot be completed: deliveryCount={}, serviceDayCount={}, outstanding={}",
                         sub.getId(), deliveryCount, sub.getServiceDayCount(), hasOutstanding);

@@ -10,6 +10,7 @@ import com.mealflex.seller.entity.SellerProfile;
 import com.mealflex.subscription.service.SubscriptionServiceDayChangeService;
 import com.mealflex.store.dto.BusinessHourRequest;
 import com.mealflex.store.dto.CreateStoreRequest;
+import com.mealflex.store.dto.DeliverySlotRequest;
 import com.mealflex.store.dto.ServiceAreaRequest;
 import com.mealflex.store.entity.BusinessHour;
 import com.mealflex.store.entity.Store;
@@ -41,6 +42,7 @@ class StoreServiceTest {
     @Mock private SellerProfileRepository sellerProfileRepository;
     @Mock private ServiceAreaRepository serviceAreaRepository;
     @Mock private BusinessHourRepository businessHourRepository;
+    @Mock private StoreDeliverySlotRepository deliverySlotRepository;
     @Mock private StoreClosedDateRepository closedDateRepository;
     @Mock private StoreDistanceRuleRepository distanceRuleRepository;
     @Mock private AddressRepository addressRepository;
@@ -183,6 +185,45 @@ class StoreServiceTest {
     }
 
     @Test
+    void sellerCanSaveOnlyQuarterHourDeliverySlots() {
+        Store store = Store.builder().name("Test Mutfağı").status(StoreStatus.ACTIVE).build();
+        store.setId(5L);
+        when(storeRepository.findByIdAndSellerUserIdAndDeletedAtIsNull(5L, 99L))
+                .thenReturn(Optional.of(store));
+
+        DeliverySlotRequest first = new DeliverySlotRequest();
+        first.setDeliveryTime(LocalTime.of(13, 0));
+        DeliverySlotRequest second = new DeliverySlotRequest();
+        second.setDeliveryTime(LocalTime.of(12, 15));
+
+        service.setDeliverySlotsForStore(99L, 5L, List.of(first, second, first));
+
+        ArgumentCaptor<com.mealflex.store.entity.StoreDeliverySlot> slots =
+                ArgumentCaptor.forClass(com.mealflex.store.entity.StoreDeliverySlot.class);
+        verify(deliverySlotRepository).deleteByStoreId(5L);
+        verify(deliverySlotRepository).flush();
+        verify(deliverySlotRepository, times(2)).save(slots.capture());
+        assertThat(slots.getAllValues()).extracting(slot -> slot.getDeliveryTime())
+                .containsExactly(LocalTime.of(12, 15), LocalTime.of(13, 0));
+    }
+
+    @Test
+    void sellerCannotSaveDeliverySlotOutsideQuarterHourIntervals() {
+        Store store = Store.builder().name("Test Mutfağı").status(StoreStatus.ACTIVE).build();
+        store.setId(5L);
+        when(storeRepository.findByIdAndSellerUserIdAndDeletedAtIsNull(5L, 99L))
+                .thenReturn(Optional.of(store));
+        DeliverySlotRequest request = new DeliverySlotRequest();
+        request.setDeliveryTime(LocalTime.of(12, 10));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> service.setDeliverySlotsForStore(99L, 5L, List.of(request)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Teslimat saatleri 15 dakikalık aralıklarla seçilmelidir.");
+        verify(deliverySlotRepository, never()).deleteByStoreId(any());
+    }
+
+    @Test
     void closedDateMustBeSetAtLeastTwoDaysInAdvance() {
         Store store = Store.builder().name("Test Mutfağı").status(StoreStatus.ACTIVE).build();
         store.setId(5L);
@@ -196,6 +237,26 @@ class StoreServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Kapalı gün en az 2 gün önceden tanımlanmalıdır.");
         verify(closedDateRepository, never()).save(any());
+    }
+
+    @Test
+    void periodOffersOnlyConfiguredTimesCompatibleWithEveryServiceDay() {
+        Store store = Store.builder().name("Test Mutfağı").status(StoreStatus.ACTIVE).build();
+        store.setId(5L);
+        when(storeRepository.findById(5L)).thenReturn(Optional.of(store));
+        when(businessHourRepository.findByStoreIdOrderByDayOfWeek(5L)).thenReturn(List.of(
+                BusinessHour.builder().dayOfWeek(DayOfWeek.MONDAY).openTime(LocalTime.of(12, 0))
+                        .closeTime(LocalTime.of(20, 0)).build(),
+                BusinessHour.builder().dayOfWeek(DayOfWeek.TUESDAY).openTime(LocalTime.of(12, 0))
+                        .closeTime(LocalTime.of(14, 0)).build()));
+        when(deliverySlotRepository.findByStoreIdOrderByDeliveryTime(5L)).thenReturn(List.of(
+                com.mealflex.store.entity.StoreDeliverySlot.builder().deliveryTime(LocalTime.of(12, 15)).build(),
+                com.mealflex.store.entity.StoreDeliverySlot.builder().deliveryTime(LocalTime.of(18, 0)).build()));
+
+        assertThat(service.getDeliveryTimesForPeriod(5L, LocalDate.of(2026, 9, 7), LocalDate.of(2026, 9, 8)))
+                .containsExactly(LocalTime.of(12, 15));
+        verify(businessHourRepository, times(1)).findByStoreIdOrderByDayOfWeek(5L);
+        verify(deliverySlotRepository, times(1)).findByStoreIdOrderByDeliveryTime(5L);
     }
 
     private static CreateStoreRequest.DistanceRuleRequest distanceRule(

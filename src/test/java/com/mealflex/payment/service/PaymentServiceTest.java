@@ -36,7 +36,146 @@ class PaymentServiceTest {
     @Mock SubscriptionDeliveryRepository deliveryRepository; @Mock UserRepository userRepository; @Mock NotificationRepository notificationRepository;
     @Mock AuditLogRepository auditLogRepository; @Mock SellerStoreAccessService storeAccessService;
     @Mock MealBalanceService mealBalanceService;
+    @Mock PaymentAllocationRepository allocationRepository;
+    @Mock SellerPayoutItemRepository payoutItemRepository;
+    @Mock com.mealflex.subscription.repository.DeliveryModificationHistoryRepository modificationRepository;
     @InjectMocks PaymentService service;
+
+    @Test
+    void weeklyChargeDoesNotChargeAlreadyPaidExtraPortionsAgain() {
+        Subscription subscription = paymentFixture(PaymentStatus.PENDING).getSubscription();
+        subscription.setPricePerPerson(new BigDecimal("10.00"));
+        subscription.setPersonCount(10);
+        subscription.setServiceDayCount(10);
+        subscription.setDiscountAmount(new BigDecimal("100.00"));
+        subscription.setTotalAmount(new BigDecimal("950.00")); // 900 base + 50 already charged change
+        LocalDate monday = LocalDate.of(2026, 9, 7);
+        var deliveries = java.util.stream.IntStream.range(0, 10).mapToObj(i -> {
+            var delivery = com.mealflex.delivery.entity.SubscriptionDelivery.builder()
+                    .subscription(subscription).deliveryDate(monday.plusDays(i < 5 ? i : i + 2))
+                    .personCount(i == 5 ? 15 : 10).status(com.mealflex.delivery.entity.DeliveryStatus.SCHEDULED).build();
+            delivery.setId((long) i + 1);
+            return delivery;
+        }).toList();
+        when(deliveryRepository.findBySubscriptionId(4L)).thenReturn(deliveries);
+        when(provider.name()).thenReturn("MOCK");
+        when(ruleRepository.findApplicable(eq(2L), any())).thenReturn(List.of(commissionRule()));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> {
+            Payment payment = invocation.getArgument(0); payment.setId(10L); return payment;
+        });
+        when(mealBalanceService.debitUpTo(any(), any(), any(), any(), any(), anyString(), anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(3));
+
+        Payment first = service.chargeForCalendarWeek(subscription, monday);
+        Payment second = service.chargeForCalendarWeek(subscription, monday.plusWeeks(1));
+
+        assertThat(first.getGrossAmount()).isEqualByComparingTo("450.00");
+        assertThat(second.getGrossAmount()).isEqualByComparingTo("450.00");
+        verify(provider, never()).charge(anyString(), any(), anyString(), anyString());
+        var deferred = com.mealflex.subscription.entity.DeliveryModificationHistory.builder()
+                .subscription(subscription).delivery(deliveries.get(5)).priceDifference(new BigDecimal("-20.00"))
+                .deferredReduction(new BigDecimal("20.00"))
+                .requestStatus(com.mealflex.subscription.entity.DeliveryModificationRequestStatus.APPROVED).build();
+        when(modificationRepository.findBySubscriptionIdOrderByCreatedAtDesc(4L)).thenReturn(List.of(deferred));
+        Payment reduced = service.chargeForCalendarWeek(subscription, monday.plusWeeks(1));
+        assertThat(reduced.getGrossAmount()).isEqualByComparingTo("430.00");
+    }
+
+    @Test
+    void unpaidDeliveryDoesNotRefundAnUnrelatedPaidWeek() {
+        Subscription subscription = paymentFixture(PaymentStatus.SUCCEEDED).getSubscription();
+        assertThat(service.refundForDeliveryChange(subscription, 99L, new BigDecimal("100.00"), 1L, "skip")).isNull();
+        verify(paymentRepository, never()).findFirstBySubscriptionIdOrderByCreatedAtDesc(any());
+        verifyNoInteractions(provider, mealBalanceService);
+    }
+
+    @Test
+    void failedWeeklyChargeIsRepricedBeforeRetryWhenDayWasSkipped() {
+        Payment payment = paymentFixture(PaymentStatus.FAILED);
+        payment.setPaidAt(null); payment.setCardAmount(new BigDecimal("100.00"));
+        payment.setIdempotencyKey("subscription-week-charge-4-2026-09-07");
+        PaymentAllocation allocation = allocation(payment, 7L, "100.00");
+        allocation.getDelivery().setStatus(com.mealflex.delivery.entity.DeliveryStatus.SKIPPED);
+        when(paymentRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(payment));
+        when(allocationRepository.findByPaymentId(10L)).thenReturn(List.of(allocation));
+        when(mealBalanceService.debitUpTo(any(), any(), any(), any(), any(), anyString(), anyString())).thenReturn(BigDecimal.ZERO);
+        service.retry(1L, 10L);
+        assertThat(payment.getGrossAmount()).isEqualByComparingTo("0.00");
+        assertThat(allocation.getAmount()).isEqualByComparingTo("0.00");
+        verifyNoInteractions(provider);
+    }
+
+    @Test
+    void unattributedHistoricalMoneyRequiresReconciliationRatherThanGuessing() {
+        Payment historical = paymentFixture(PaymentStatus.SUCCEEDED);
+        when(paymentRepository.findBySubscriptionIdOrderByCreatedAtDesc(4L)).thenReturn(List.of(historical));
+        assertThatThrownBy(() -> service.creditPaidReduction(historical.getSubscription(), 7L, BigDecimal.TEN, 1L, "x"))
+                .hasMessageContaining("uzlaştırılmadan");
+        verifyNoInteractions(provider, mealBalanceService);
+    }
+
+    @Test
+    void paidReductionCreditsBalanceOnceAndReducesSellerNet() {
+        Payment payment = paymentFixture(PaymentStatus.SUCCEEDED);
+        PaymentAllocation allocation = allocation(payment, 7L, "100.00");
+        when(allocationRepository.findByDeliveryIdOrderByIdDesc(7L)).thenReturn(List.of(allocation));
+        Map<String, Refund> refunds = new HashMap<>();
+        when(refundRepository.findByIdempotencyKey(anyString())).thenAnswer(i -> Optional.ofNullable(refunds.get(i.getArgument(0))));
+        when(refundRepository.save(any())).thenAnswer(i -> { Refund r = i.getArgument(0); r.setId(21L); refunds.put(r.getIdempotencyKey(), r); return r; });
+        assertThat(service.creditPaidReduction(payment.getSubscription(), 7L, new BigDecimal("25.00"), 1L, "reduction-1"))
+                .isEqualByComparingTo("25.00");
+        assertThat(service.creditPaidReduction(payment.getSubscription(), 7L, new BigDecimal("25.00"), 1L, "reduction-1"))
+                .isEqualByComparingTo("25.00");
+        assertThat(allocation.getReturnedAmount()).isEqualByComparingTo("25.00");
+        assertThat(payment.getNetAmount()).isEqualByComparingTo("64.20");
+        verify(mealBalanceService, times(1)).credit(any(), any(), any(), eq(new BigDecimal("25.00")), any(), anyString(), anyString());
+        verifyNoInteractions(provider);
+    }
+
+    @Test
+    void mixedFundingRefundReturnsOnlyCardPortionToProvider() {
+        Payment payment = paymentFixture(PaymentStatus.SUCCEEDED);
+        payment.setBalanceAmount(new BigDecimal("40.00")); payment.setCardAmount(new BigDecimal("60.00"));
+        PaymentAllocation allocation = allocation(payment, 7L, "100.00");
+        when(allocationRepository.findByDeliveryIdOrderByIdDesc(7L)).thenReturn(List.of(allocation));
+        when(refundRepository.save(any())).thenAnswer(i -> { Refund r = i.getArgument(0); r.setId(21L); return r; });
+        when(provider.refund(anyString(), any(), anyString(), anyString()))
+                .thenReturn(new PaymentProvider.RefundResult(true, "refund", "00", null));
+        service.refundForDeliveryChange(payment.getSubscription(), 7L, new BigDecimal("100.00"), 1L, "skip");
+        verify(provider).refund(eq("provider-1"), eq(new BigDecimal("60.00")), eq("TRY"), anyString());
+        verify(mealBalanceService).credit(any(), any(), any(), eq(new BigDecimal("40.00")), any(), anyString(), anyString());
+        assertThat(payment.getRefundedAmount()).isEqualByComparingTo("100.00");
+        assertThat(allocation.getReturnedAmount()).isEqualByComparingTo("100.00");
+    }
+
+    @Test
+    void cancellationRefundsEachCancelledDeliveryAcrossWeeksButNotDeliveredMeals() {
+        Payment first = paymentFixture(PaymentStatus.SUCCEEDED);
+        Payment second = paymentFixture(PaymentStatus.SUCCEEDED); second.setId(11L);
+        PaymentAllocation a = allocation(first, 7L, "40.00");
+        PaymentAllocation b = allocation(second, 8L, "100.00");
+        a.getDelivery().setStatus(com.mealflex.delivery.entity.DeliveryStatus.CANCELLED);
+        b.getDelivery().setStatus(com.mealflex.delivery.entity.DeliveryStatus.CANCELLED);
+        var delivered = com.mealflex.delivery.entity.SubscriptionDelivery.builder().status(com.mealflex.delivery.entity.DeliveryStatus.DELIVERED).build();
+        when(deliveryRepository.findBySubscriptionId(4L)).thenReturn(List.of(a.getDelivery(), b.getDelivery(), delivered));
+        when(allocationRepository.findByDeliveryIdOrderByIdDesc(7L)).thenReturn(List.of(a));
+        when(allocationRepository.findByDeliveryIdOrderByIdDesc(8L)).thenReturn(List.of(b));
+        when(refundRepository.save(any())).thenAnswer(i -> { Refund r = i.getArgument(0); r.setId(21L); return r; });
+        when(provider.refund(anyString(), any(), anyString(), anyString()))
+                .thenReturn(new PaymentProvider.RefundResult(true, "refund", "00", null));
+        service.refundForCancellation(first.getSubscription(), 1L, "cancel");
+        assertThat(first.getRefundedAmount()).isEqualByComparingTo("40.00");
+        assertThat(second.getRefundedAmount()).isEqualByComparingTo("100.00");
+        verify(provider, times(2)).refund(anyString(), any(), anyString(), anyString());
+    }
+
+    private PaymentAllocation allocation(Payment payment, long deliveryId, String amount) {
+        var delivery = com.mealflex.delivery.entity.SubscriptionDelivery.builder().subscription(payment.getSubscription()).build();
+        delivery.setId(deliveryId);
+        PaymentAllocation allocation = PaymentAllocation.builder().payment(payment).delivery(delivery).amount(new BigDecimal(amount)).build();
+        allocation.setId(deliveryId);
+        return allocation;
+    }
 
     @Test
     void repeatedApprovalUsesOriginalSuccessfulPayment() {
@@ -67,6 +206,8 @@ class PaymentServiceTest {
     @Test
     void approvedExtraPortionsUseMealBalanceBeforeChargingTheCard() {
         Payment payment = paymentFixture(PaymentStatus.PENDING);
+        when(deliveryRepository.findById(7L)).thenReturn(Optional.of(com.mealflex.delivery.entity.SubscriptionDelivery.builder()
+                .subscription(payment.getSubscription()).build()));
         when(provider.name()).thenReturn("MOCK");
         when(paymentRepository.findByIdempotencyKey("delivery-change-charge-7-change-8")).thenReturn(Optional.empty());
         when(ruleRepository.findApplicable(2L, LocalDate.now())).thenReturn(List.of(commissionRule()));
@@ -113,9 +254,23 @@ class PaymentServiceTest {
     }
 
     @Test
+    void refundedPaymentsCannotBeChargedAgainThroughRetry() {
+        for (PaymentStatus status : List.of(PaymentStatus.PARTIALLY_REFUNDED, PaymentStatus.REFUNDED)) {
+            Payment payment = paymentFixture(status);
+            when(paymentRepository.findByIdForUpdate(payment.getId())).thenReturn(Optional.of(payment));
+
+            service.retry(payment.getCustomer().getId(), payment.getId());
+
+            assertThat(payment.getStatus()).isEqualTo(status);
+        }
+        verifyNoInteractions(provider, attemptRepository, mealBalanceService);
+        verify(paymentRepository, never()).save(any());
+    }
+
+    @Test
     void failedPaymentCanBeRetriedOnlyUpToTheConfiguredMaximum() {
         Payment payment = paymentFixture(PaymentStatus.FAILED);
-        when(paymentRepository.findById(10L)).thenReturn(Optional.of(payment));
+        when(paymentRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(payment));
         when(attemptRepository.countByPaymentId(10L)).thenReturn(3L);
 
         assertThatThrownBy(() -> service.retry(1L, 10L))

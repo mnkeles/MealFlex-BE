@@ -50,6 +50,22 @@ class AdminFinanceControllerTest {
         order.verify(financeService).refund(1L, 10L, new BigDecimal("20.00"), "Müşteri talebi");
     }
 
+    @Test
+    void reconciliationResponseKeepsUnknownAmountsNull() {
+        FinanceReconciliationService reconciliationService = mock(FinanceReconciliationService.class);
+        AdminFinanceController controller = new AdminFinanceController(mock(AdminFinanceService.class),
+                mock(AccountSecurityService.class), reconciliationService);
+        var item = com.mealflex.payment.entity.FinanceReconciliation.builder()
+                .reconciliationDate(java.time.LocalDate.of(2026, 9, 7))
+                .ledgerCollectedAmount(BigDecimal.TEN).paidPayoutAmount(BigDecimal.ZERO)
+                .status("PROVIDER_UNAVAILABLE").build();
+        item.setId(1L);
+        when(reconciliationService.list()).thenReturn(java.util.List.of(item));
+        var response = controller.reconciliations().getFirst();
+        org.assertj.core.api.Assertions.assertThat(response).containsEntry("providerCollectedAmount", null)
+                .containsEntry("discrepancyAmount", null).containsEntry("status", "PROVIDER_UNAVAILABLE");
+    }
+
     private AdminRefundRequest request() {
         AdminRefundRequest request = new AdminRefundRequest();
         request.setAmount(new BigDecimal("20.00"));

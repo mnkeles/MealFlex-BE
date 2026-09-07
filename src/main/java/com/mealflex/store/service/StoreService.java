@@ -47,6 +47,7 @@ public class StoreService {
     private final SellerProfileRepository sellerProfileRepository;
     private final ServiceAreaRepository serviceAreaRepository;
     private final BusinessHourRepository businessHourRepository;
+    private final StoreDeliverySlotRepository deliverySlotRepository;
     private final StoreClosedDateRepository closedDateRepository;
     private final StoreDistanceRuleRepository distanceRuleRepository;
     private final AddressRepository addressRepository;
@@ -486,6 +487,63 @@ public class StoreService {
                 .toList();
     }
 
+    @Transactional
+    public List<DeliverySlotResponse> setDeliverySlotsForStore(Long userId, Long storeId,
+            List<DeliverySlotRequest> requests) {
+        Store store = getStoreForSeller(userId, storeId);
+        if (requests == null || requests.isEmpty()) {
+            throw new BusinessException("DELIVERY_SLOTS_REQUIRED",
+                    "Müşterilerin seçebilmesi için en az bir teslimat saati tanımlamalısınız.");
+        }
+
+        List<LocalTime> times = requests.stream()
+                .map(DeliverySlotRequest::getDeliveryTime)
+                .peek(this::validateDeliverySlotTime)
+                .distinct()
+                .sorted()
+                .toList();
+
+        deliverySlotRepository.deleteByStoreId(storeId);
+        deliverySlotRepository.flush();
+        times.forEach(time -> deliverySlotRepository.save(StoreDeliverySlot.builder()
+                .store(store)
+                .deliveryTime(time)
+                .build()));
+        return getDeliverySlots(storeId);
+    }
+
+    public List<DeliverySlotResponse> getDeliverySlots(Long storeId) {
+        return deliverySlotRepository.findByStoreIdOrderByDeliveryTime(storeId).stream()
+                .map(slot -> DeliverySlotResponse.builder()
+                        .id(slot.getId())
+                        .deliveryTime(slot.getDeliveryTime())
+                        .build())
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<LocalTime> getDeliveryTimesForPeriod(Long storeId, LocalDate start, LocalDate end) {
+        com.mealflex.subscription.service.SubscriptionDatePolicy.validateRange(start, end);
+        Store store = storeRepository.findById(storeId)
+                .orElseThrow(() -> new ResourceNotFoundException("Mağaza", storeId));
+        requirePublicStore(store, storeId);
+        if (end.isBefore(start)) {
+            throw new BusinessException("INVALID_DATE_RANGE", "Bitiş tarihi başlangıç tarihinden önce olamaz.");
+        }
+        List<BusinessHour> hours = businessHourRepository.findByStoreIdOrderByDayOfWeek(storeId);
+        Set<LocalDate> closedDates = closedDateRepository.findByStoreIdAndClosedDateBetween(storeId, start, end)
+                .stream().map(StoreClosedDate::getClosedDate).collect(java.util.stream.Collectors.toSet());
+        List<LocalDate> serviceDates = start.datesUntil(end.plusDays(1))
+                .filter(date -> !closedDates.contains(date))
+                .filter(date -> hours.stream().noneMatch(hour ->
+                        hour.getDayOfWeek() == date.getDayOfWeek() && !hour.isOpen()))
+                .toList();
+        return deliverySlotRepository.findByStoreIdOrderByDeliveryTime(storeId).stream()
+                .map(StoreDeliverySlot::getDeliveryTime)
+                .filter(time -> DeliveryTimePolicy.permits(time, serviceDates, hours))
+                .toList();
+    }
+
     /** The current and following calendar week are protected for existing subscriptions. */
     static LocalDate serviceDayChangeEffectiveFrom(LocalDate changedOn) {
         return changedOn.with(TemporalAdjusters.next(DayOfWeek.MONDAY)).plusWeeks(1);
@@ -635,12 +693,18 @@ public class StoreService {
     }
 
     private LocalDate nextAvailableDate(Long storeId) {
-        LocalDate start = LocalDate.now().plusDays(2);
+        List<StoreDeliverySlot> slots = deliverySlotRepository.findByStoreIdOrderByDeliveryTime(storeId);
+        if (slots.isEmpty()) return null;
+        List<BusinessHour> hours = businessHourRepository.findByStoreIdOrderByDayOfWeek(storeId);
+        LocalDate start = LocalDate.now(ZoneId.of("Europe/Istanbul")).plusDays(2);
+        Set<LocalDate> closedDates = closedDateRepository
+                .findByStoreIdAndClosedDateBetween(storeId, start, start.plusDays(59))
+                .stream().map(StoreClosedDate::getClosedDate).collect(java.util.stream.Collectors.toSet());
         for (int offset = 0; offset < 60; offset++) {
             LocalDate date = start.plusDays(offset);
-            if (closedDateRepository.existsByStoreIdAndClosedDate(storeId, date)) continue;
-            BusinessHour hour = businessHourRepository.findByStoreIdAndDayOfWeek(storeId, date.getDayOfWeek()).orElse(null);
-            if (hour == null || hour.isOpen()) return date;
+            if (closedDates.contains(date)) continue;
+            if (slots.stream().anyMatch(slot -> DeliveryTimePolicy.permits(
+                    slot.getDeliveryTime(), List.of(date), hours))) return date;
         }
         return null;
     }
@@ -649,11 +713,19 @@ public class StoreService {
         if (date == null) return List.of();
         BusinessHour hour = businessHourRepository.findByStoreIdAndDayOfWeek(storeId, date.getDayOfWeek()).orElse(null);
         if (hour != null && !hour.isOpen()) return List.of();
-        LocalTime start = hour == null || hour.getOpenTime() == null ? LocalTime.of(11, 0) : hour.getOpenTime();
-        LocalTime end = hour == null || hour.getCloseTime() == null ? LocalTime.of(15, 0) : hour.getCloseTime();
-        java.util.ArrayList<LocalTime> times = new java.util.ArrayList<>();
-        for (LocalTime time = start; !time.isAfter(end.minusMinutes(30)); time = time.plusMinutes(30)) times.add(time);
-        return times;
+        return deliverySlotRepository.findByStoreIdOrderByDeliveryTime(storeId).stream()
+                .map(StoreDeliverySlot::getDeliveryTime)
+                .filter(time -> hour == null
+                        || ((hour.getOpenTime() == null || !time.isBefore(hour.getOpenTime()))
+                        && (hour.getCloseTime() == null || !time.isAfter(hour.getCloseTime()))))
+                .toList();
+    }
+
+    private void validateDeliverySlotTime(LocalTime time) {
+        if (time == null || time.getMinute() % 15 != 0 || time.getSecond() != 0 || time.getNano() != 0) {
+            throw new BusinessException("DELIVERY_SLOT_INTERVAL_INVALID",
+                    "Teslimat saatleri 15 dakikalık aralıklarla seçilmelidir.");
+        }
     }
 
     private Comparator<StoreResponse> discoveryComparator(String sort) {

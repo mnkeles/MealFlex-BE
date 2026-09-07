@@ -9,6 +9,7 @@ import com.mealflex.menu.repository.MenuRepository;
 import com.mealflex.store.entity.Store;
 import com.mealflex.store.entity.StoreStatus;
 import com.mealflex.store.repository.StoreRepository;
+import com.mealflex.store.repository.StoreDeliverySlotRepository;
 import com.mealflex.store.service.StoreEligibilityService;
 import com.mealflex.subscription.dto.CreateSubscriptionRequest;
 import com.mealflex.user.entity.User;
@@ -32,6 +33,7 @@ public class SubscriptionRequestPreparationService {
     private final AddressRepository addressRepository;
     private final StoreEligibilityService eligibilityService;
     private final SubscriptionDeliveryPlanningService deliveryPlanningService;
+    private final StoreDeliverySlotRepository deliverySlotRepository;
 
     public PreparedSubscription prepare(Long userId, CreateSubscriptionRequest request) {
         User customer = userRepository.findById(userId)
@@ -43,6 +45,10 @@ public class SubscriptionRequestPreparationService {
         }
         if (store.isTemporarilyClosed()) {
             throw new BusinessException("STORE_TEMPORARILY_CLOSED", "Bu mağaza geçici olarak sipariş almıyor.");
+        }
+        if (!deliverySlotRepository.existsByStoreIdAndDeliveryTime(store.getId(), request.getDeliveryTime())) {
+            throw new BusinessException("DELIVERY_TIME_NOT_AVAILABLE",
+                    "Seçilen teslimat saati işletmenin sunduğu saatler arasında değil.");
         }
 
         Menu menu = menuRepository.findByIdAndStoreIdAndActiveTrueAndDeletedAtIsNull(request.getMenuId(), store.getId())
@@ -59,10 +65,8 @@ public class SubscriptionRequestPreparationService {
             throw new BusinessException("STORE_MAXIMUM_PERSON_COUNT",
                     "Bu mağaza için maksimum kişi sayısı " + store.getMaxPersonCount() + "'dir.");
         }
-        if (request.getEndDate().isBefore(request.getStartDate())) {
-            throw new BusinessException("INVALID_DATE_RANGE", "Bitiş tarihi başlangıç tarihinden önce olamaz.");
-        }
-        if (request.getStartDate().isBefore(LocalDate.now().plusDays(MIN_LEAD_DAYS))) {
+        SubscriptionDatePolicy.validateRange(request.getStartDate(), request.getEndDate());
+        if (request.getStartDate().isBefore(SubscriptionDatePolicy.today().plusDays(MIN_LEAD_DAYS))) {
             throw new BusinessException("INVALID_START_DATE",
                     "Başlangıç tarihi en az " + MIN_LEAD_DAYS + " gün sonrası olmalıdır.");
         }
@@ -73,6 +77,10 @@ public class SubscriptionRequestPreparationService {
             throw new BusinessException("MINIMUM_SERVICE_DAYS",
                     "Abonelik en az " + MIN_SERVICE_DAYS + " hizmet günü olmalıdır. Seçilen aralıkta "
                             + serviceDays.size() + " hizmet günü bulunmaktadır.");
+        }
+        if (!deliveryPlanningService.isDeliveryTimeAvailable(store.getId(), request.getDeliveryTime(), serviceDays)) {
+            throw new BusinessException("DELIVERY_TIME_NOT_AVAILABLE",
+                    "Seçilen saat abonelik dönemindeki tüm hizmet günlerinin çalışma saatlerine uygun olmalıdır.");
         }
         return new PreparedSubscription(customer, store, menu, address, eligibility, serviceDays);
     }

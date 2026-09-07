@@ -376,7 +376,6 @@ public class DeliveryService {
                 .failureReason(d.getFailureReason())
                 .receiverName(d.getReceiverName())
                 .proofPhotoUrl(d.getProofPhotoUrl())
-                .deliveryCode(d.getDeliveryCode())
                 .delayMinutes(d.getDelayMinutes())
                 .courierLatitude(d.getCourierLatitude())
                 .courierLongitude(d.getCourierLongitude())

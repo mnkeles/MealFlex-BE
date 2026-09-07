@@ -103,7 +103,9 @@ class SubscriptionSchedulerTest {
         when(subscriptionRepository.findByStatusAndEndDateLessThan(SubscriptionStatus.ACTIVE, today))
                 .thenReturn(List.of(subscription));
         when(deliveryRepository.countBySubscriptionId(50L)).thenReturn(5L);
-        when(deliveryRepository.existsBySubscriptionIdAndStatusIn(eq(50L), any())).thenReturn(true);
+        when(deliveryRepository.existsBySubscriptionIdAndStatusIn(eq(50L), org.mockito.ArgumentMatchers.argThat(
+                statuses -> statuses.containsAll(List.of(DeliveryStatus.PREPARING, DeliveryStatus.DELIVERY_ATTEMPTED)))))
+                .thenReturn(true);
 
         scheduler.processSubscriptions();
 

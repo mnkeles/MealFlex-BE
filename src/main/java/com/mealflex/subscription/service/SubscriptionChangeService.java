@@ -25,6 +25,7 @@ public class SubscriptionChangeService {
     private final SubscriptionRepository subscriptionRepository; private final SubscriptionDeliveryRepository deliveryRepository;
     private final SubscriptionFreezeRepository freezeRepository; private final SubscriptionAdjustmentRepository adjustmentRepository;
     private final PaymentService paymentService; private final NotificationRepository notificationRepository; private final AuditLogRepository auditLogRepository;
+    private final com.mealflex.payment.service.SellerPayoutService sellerPayoutService;
 
     @Transactional
     public DeliveryChangeResponse skip(Long userId, Long subscriptionId, Long deliveryId, String reason) {
@@ -33,6 +34,7 @@ public class SubscriptionChangeService {
         if (adjustmentRepository.existsByDeliveryId(deliveryId)) throw new BusinessException("DELIVERY_ALREADY_CHANGED", "Bu teslimat için daha önce değişiklik yapılmış.");
         BigDecimal amount = dailyAmount(subscription, delivery); Refund refund = paymentService.refundForDeliveryChange(subscription, deliveryId, amount, userId, reason);
         markSkipped(delivery, userId, reason == null ? "Müşteri tarafından atlandı" : reason);
+        sellerPayoutService.scheduleAfterFinalWeeklyDelivery(delivery);
         adjustmentRepository.save(adjustment(subscription, delivery, "SKIP", amount, refund, reason));
         audit(userId, "DELIVERY_SKIPPED", deliveryId, "amount=" + amount); notifyBoth(subscription, "Teslimat günü atlandı", delivery.getDeliveryDate() + " tarihli teslimat atlandı.");
         return new DeliveryChangeResponse(subscriptionId, delivery.getDeliveryDate(), delivery.getDeliveryDate(), 1, amount, "TRY", refund == null ? "NOT_CHARGED" : refund.getStatus().name());
@@ -53,6 +55,7 @@ public class SubscriptionChangeService {
             if (adjustmentRepository.existsByDeliveryId(delivery.getId())) continue;
             BigDecimal amount = dailyAmount(subscription, delivery); Refund refund = paymentService.refundForDeliveryChange(subscription, delivery.getId(), amount, userId, request.reason());
             markSkipped(delivery, userId, request.reason() == null ? "Abonelik donduruldu" : request.reason());
+            sellerPayoutService.scheduleAfterFinalWeeklyDelivery(delivery);
             adjustmentRepository.save(adjustment(subscription, delivery, "FREEZE", amount, refund, request.reason())); total = total.add(amount);
             if (refund != null) status = refund.getStatus().name();
         }
@@ -83,7 +86,7 @@ public class SubscriptionChangeService {
         ZonedDateTime deadline = ZonedDateTime.of(delivery.getDeliveryDate(), delivery.getDeliveryTime(), ZoneId.of("Europe/Istanbul")).minusHours(cutoff);
         if (!ZonedDateTime.now(ZoneId.of("Europe/Istanbul")).isBefore(deadline)) throw new BusinessException("CHANGE_CUTOFF_PASSED", "Bu teslimat için değişiklik süresi doldu. Son değişiklik süresi teslimattan " + cutoff + " saat öncedir.");
     }
-    private BigDecimal dailyAmount(Subscription subscription, SubscriptionDelivery delivery) { return subscription.getPricePerPerson().multiply(BigDecimal.valueOf(delivery.getPersonCount())).setScale(2, RoundingMode.HALF_UP); }
+    private BigDecimal dailyAmount(Subscription subscription, SubscriptionDelivery delivery) { return paymentService.deliveryAdjustmentValue(subscription, delivery); }
     private void markSkipped(SubscriptionDelivery delivery, Long userId, String reason) { delivery.setStatus(DeliveryStatus.SKIPPED); delivery.setChangeReason(reason); delivery.setChangedAt(Instant.now()); delivery.setChangedByUserId(userId); deliveryRepository.save(delivery); }
     private SubscriptionAdjustment adjustment(Subscription s, SubscriptionDelivery d, String type, BigDecimal amount, Refund refund, String reason) { return SubscriptionAdjustment.builder().subscription(s).delivery(d).adjustmentType(type).status(refund == null ? "NOT_CHARGED" : refund.getStatus().name()).amount(amount).currency("TRY").refund(refund).reason(reason).build(); }
     private void notifyBoth(Subscription s, String title, String message) { notificationRepository.save(Notification.builder().user(s.getCustomer()).title(title).message(message).referenceType("SUBSCRIPTION_DELIVERY").referenceId(s.getId()).build()); notificationRepository.save(Notification.builder().user(s.getStore().getSeller().getUser()).title(title).message(message).referenceType("SUBSCRIPTION").referenceId(s.getId()).build()); }

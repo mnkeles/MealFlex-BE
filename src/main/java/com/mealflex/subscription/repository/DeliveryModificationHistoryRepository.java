@@ -6,6 +6,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import java.util.List;
 public interface DeliveryModificationHistoryRepository extends JpaRepository<DeliveryModificationHistory,Long> {
+    @Override
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    java.util.Optional<DeliveryModificationHistory> findById(Long id);
     List<DeliveryModificationHistory> findBySubscriptionIdOrderByCreatedAtDesc(Long subscriptionId);
 
     boolean existsByDeliveryIdAndRequestStatus(Long deliveryId, DeliveryModificationRequestStatus requestStatus);

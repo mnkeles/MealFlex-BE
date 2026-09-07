@@ -1,4 +1,9 @@
 spring:
+  config:
+    # Yerel `.env` dosyası Git'e eklenmez; geliştirici makinesindeki bağlantı
+    # bilgilerini güvenle sağlar. Dosya yoksa ortam değişkenleri kullanılmaya devam eder.
+    import: optional:file:.env[.properties]
+
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/mealflex}
     username: ${DB_USERNAME:postgres}

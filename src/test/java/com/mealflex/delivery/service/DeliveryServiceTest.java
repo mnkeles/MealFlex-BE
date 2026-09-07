@@ -151,6 +151,10 @@ class DeliveryServiceTest {
             assertThat(item.getCustomerPhoneMasked()).isEqualTo("•••• ••• 4567");
             assertThat(item.getDeliveryCode()).isNull();
         });
+        when(storeAccessService.requireOwnedStore(99L, 5L)).thenReturn(store);
+        when(deliveryRepository.findByStoreIdAndDate(5L, LocalDate.now())).thenReturn(List.of(delivery));
+        assertThat(deliveryService.getStoreDeliveriesByDate(99L, 5L, LocalDate.now()))
+                .singleElement().satisfies(item -> assertThat(item.getDeliveryCode()).isNull());
     }
 
     @Test

@@ -36,6 +36,8 @@ public class MealBalanceService {
         MealBalanceTransaction existing = transactionRepository.findByReferenceKey(referenceKey).orElse(null);
         if (existing != null) return existing.getAmount();
         MealBalanceAccount account = accountForUpdate(customer);
+        existing = transactionRepository.findByReferenceKey(referenceKey).orElse(null);
+        if (existing != null) return existing.getAmount();
         BigDecimal amount = money(account.getAvailableAmount().min(money(requested)));
         if (amount.signum() == 0) return ZERO;
         account.setAvailableAmount(money(account.getAvailableAmount().subtract(amount)));
@@ -53,6 +55,8 @@ public class MealBalanceService {
         MealBalanceTransaction existing = transactionRepository.findByReferenceKey(referenceKey).orElse(null);
         if (existing != null) return existing.getAmount();
         MealBalanceAccount account = accountForUpdate(customer);
+        existing = transactionRepository.findByReferenceKey(referenceKey).orElse(null);
+        if (existing != null) return existing.getAmount();
         BigDecimal credit = money(amount);
         account.setAvailableAmount(money(account.getAvailableAmount().add(credit)));
         accountRepository.save(account);

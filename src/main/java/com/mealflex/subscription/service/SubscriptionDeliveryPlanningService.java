@@ -7,6 +7,7 @@ import com.mealflex.store.entity.BusinessHour;
 import com.mealflex.store.entity.StoreClosedDate;
 import com.mealflex.store.repository.BusinessHourRepository;
 import com.mealflex.store.repository.StoreClosedDateRepository;
+import com.mealflex.store.service.DeliveryTimePolicy;
 import com.mealflex.subscription.entity.Subscription;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -17,7 +18,8 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
+import java.security.SecureRandom;
+import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -25,11 +27,19 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class SubscriptionDeliveryPlanningService {
 
+    private static final SecureRandom DELIVERY_CODE_RANDOM = new SecureRandom();
+
     private final BusinessHourRepository businessHourRepository;
     private final StoreClosedDateRepository closedDateRepository;
     private final SubscriptionDeliveryRepository deliveryRepository;
 
+    public boolean isDeliveryTimeAvailable(Long storeId, java.time.LocalTime time, List<LocalDate> dates) {
+        return DeliveryTimePolicy.permits(time, dates,
+                businessHourRepository.findByStoreIdOrderByDayOfWeek(storeId));
+    }
+
     public List<LocalDate> calculateServiceDays(Long storeId, LocalDate startDate, LocalDate endDate) {
+        SubscriptionDatePolicy.validateRange(startDate, endDate);
         Set<DayOfWeek> closedDays = businessHourRepository.findByStoreIdOrderByDayOfWeek(storeId).stream()
                 .filter(businessHour -> !businessHour.isOpen())
                 .map(BusinessHour::getDayOfWeek)
@@ -69,7 +79,7 @@ public class SubscriptionDeliveryPlanningService {
                         .menu(subscription.getMenu())
                         .address(subscription.getAddress())
                         .statusChangedAt(Instant.now())
-                        .deliveryCode(String.format("%04d", Math.abs(Objects.hash(subscription.getId(), date)) % 10000))
+                        .deliveryCode(String.format(Locale.ROOT, "%04d", DELIVERY_CODE_RANDOM.nextInt(10_000)))
                         .build())
                 .toList();
         deliveryRepository.saveAll(deliveries);

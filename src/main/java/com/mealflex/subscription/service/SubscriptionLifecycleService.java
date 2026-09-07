@@ -7,6 +7,7 @@ import com.mealflex.common.exception.ResourceNotFoundException;
 import com.mealflex.notification.entity.Notification;
 import com.mealflex.notification.repository.NotificationRepository;
 import com.mealflex.payment.service.PaymentService;
+import com.mealflex.payment.service.SellerPayoutService;
 import com.mealflex.store.service.SellerStoreAccessService;
 import com.mealflex.subscription.entity.Subscription;
 import com.mealflex.subscription.entity.SubscriptionStatus;
@@ -31,6 +32,7 @@ public class SubscriptionLifecycleService {
     private final AuditLogRepository auditLogRepository;
     private final NotificationRepository notificationRepository;
     private final SellerStoreAccessService storeAccessService;
+    private final SellerPayoutService payoutService;
 
     @Transactional
     public Subscription approve(Long userId, Long subscriptionId) {
@@ -96,6 +98,7 @@ public class SubscriptionLifecycleService {
         subscription = subscriptionRepository.save(subscription);
         deliveryPlanningService.cancelOutstandingDeliveries(subscription.getId(), LocalDate.now());
         paymentService.refundForCancellation(subscription, userId, reason);
+        payoutService.recheckAfterCancellation(subscription.getId());
         audit(userId, "SUBSCRIPTION_CANCELLED", subscription.getId(),
                 previousStatus.name(), SubscriptionStatus.CANCELLED.name());
         notificationRepository.save(Notification.builder()

@@ -49,6 +49,9 @@ public class PaymentService {
     private final AuditLogRepository auditLogRepository;
     private final SellerStoreAccessService storeAccessService;
     private final MealBalanceService mealBalanceService;
+    private final PaymentAllocationRepository allocationRepository;
+    private final SellerPayoutItemRepository payoutItemRepository;
+    private final com.mealflex.subscription.repository.DeliveryModificationHistoryRepository modificationRepository;
 
     @Transactional
     public PaymentMethodResponse addMethod(Long userId, CreatePaymentMethodRequest request) {
@@ -84,6 +87,7 @@ public class PaymentService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Payment chargeForApproval(Subscription subscription, Long actorId) {
+        userRepository.findByIdForSubscriptionRequest(subscription.getCustomer().getId());
         String key = "subscription-approval-" + subscription.getId();
         Payment payment = paymentRepository.findByIdempotencyKey(key).orElseGet(() -> createPayment(subscription, key));
         if (payment.getStatus() == PaymentStatus.SUCCEEDED || payment.getStatus() == PaymentStatus.PARTIALLY_REFUNDED || payment.getStatus() == PaymentStatus.REFUNDED) return payment;
@@ -116,19 +120,21 @@ public class PaymentService {
     /** Takvim haftasının ilk teslim günü saat 09:00'da çalışacak tahsilat. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Payment chargeForCalendarWeek(Subscription subscription, LocalDate weekStart) {
+        userRepository.findByIdForSubscriptionRequest(subscription.getCustomer().getId());
         String key = "subscription-week-charge-" + subscription.getId() + "-" + weekStart;
         Payment payment = paymentRepository.findByIdempotencyKey(key).orElseGet(() -> {
-            long deliveryCount = deliveryRepository.findBySubscriptionId(subscription.getId()).stream()
+            var deliveries = deliveryRepository.findBySubscriptionId(subscription.getId());
+            BigDecimal amount = deliveries.stream()
                     .filter(d -> !d.getDeliveryDate().isBefore(weekStart) && !d.getDeliveryDate().isAfter(weekStart.plusDays(6)))
-                    .filter(d -> d.getStatus() != DeliveryStatus.CANCELLED).count();
-            BigDecimal amount = subscription.getTotalAmount()
-                    .multiply(BigDecimal.valueOf(deliveryCount))
-                    .divide(BigDecimal.valueOf(subscription.getServiceDayCount()), 2, RoundingMode.HALF_UP);
+                    .filter(d -> d.getStatus() != DeliveryStatus.CANCELLED && d.getStatus() != DeliveryStatus.SKIPPED)
+                    .map(d -> baseDue(subscription, deliveries, d))
+                    .reduce(ZERO, BigDecimal::add);
             return createPayment(subscription, key, amount, true, null,
                     MealBalanceTransactionType.WEEKLY_CHARGE_DEBIT,
                     "Haftalık yemek ücreti için öğün bakiyesi kullanıldı");
         });
         if (payment.getStatus() == PaymentStatus.SUCCEEDED || payment.getStatus() == PaymentStatus.PARTIALLY_REFUNDED || payment.getStatus() == PaymentStatus.REFUNDED) return payment;
+        refreshUnpaidWeeklyPayment(payment);
         long attempts = attemptRepository.countByPaymentId(payment.getId());
         if (attempts >= MAX_ATTEMPTS) return payment;
         if (payment.getBalanceAmount().signum() == 0 && payment.getCardAmount().compareTo(payment.getGrossAmount()) == 0) {
@@ -156,9 +162,12 @@ public class PaymentService {
 
     @Transactional
     public PaymentResponse retry(Long userId, Long paymentId) {
-        Payment payment = paymentRepository.findById(paymentId).orElseThrow(() -> new ResourceNotFoundException("Ödeme", paymentId));
+        Payment payment = paymentRepository.findByIdForUpdate(paymentId).orElseThrow(() -> new ResourceNotFoundException("Ödeme", paymentId));
         if (!payment.getCustomer().getId().equals(userId)) throw new BusinessException("UNAUTHORIZED_ACCESS", "Bu ödeme size ait değil.", HttpStatus.FORBIDDEN);
-        if (payment.getStatus() == PaymentStatus.SUCCEEDED) return toPayment(payment);
+        if (payment.getStatus() == PaymentStatus.SUCCEEDED
+                || payment.getStatus() == PaymentStatus.PARTIALLY_REFUNDED
+                || payment.getStatus() == PaymentStatus.REFUNDED) return toPayment(payment);
+        refreshUnpaidWeeklyPayment(payment);
         long attempts = attemptRepository.countByPaymentId(payment.getId());
         if (attempts >= MAX_ATTEMPTS) throw new BusinessException("PAYMENT_RETRY_LIMIT", "Ödeme deneme sınırına ulaşıldı.");
         if (payment.getBalanceAmount().signum() == 0 && payment.getCardAmount().compareTo(payment.getGrossAmount()) == 0) {
@@ -180,12 +189,14 @@ public class PaymentService {
         return toPayment(payment);
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional
     public Payment chargeForDeliveryChange(Subscription subscription, Long deliveryId, BigDecimal amount, Long actorId, String fingerprint) {
+        userRepository.findByIdForSubscriptionRequest(subscription.getCustomer().getId());
         String key = "delivery-change-charge-" + deliveryId + "-" + fingerprint;
         Payment payment = paymentRepository.findByIdempotencyKey(key).orElseGet(() -> createPayment(subscription, key, amount, true, deliveryId,
                 MealBalanceTransactionType.DELIVERY_INCREASE_DEBIT, "Ek porsiyon için öğün bakiyesi kullanıldı"));
-        if (payment.getStatus() == PaymentStatus.SUCCEEDED) return payment;
+        if (payment.getStatus() == PaymentStatus.SUCCEEDED || payment.getStatus() == PaymentStatus.PARTIALLY_REFUNDED
+                || payment.getStatus() == PaymentStatus.REFUNDED) return payment;
         long attempts = attemptRepository.countByPaymentId(payment.getId());
         if (attempts >= MAX_ATTEMPTS) return payment;
         if (payment.getBalanceAmount().signum() == 0 && payment.getCardAmount().compareTo(payment.getGrossAmount()) == 0) {
@@ -211,12 +222,15 @@ public class PaymentService {
 
     @Transactional
     public Refund refundForCancellation(Subscription subscription, Long actorId, String reason) {
-        Payment payment = paymentRepository.findFirstBySubscriptionIdOrderByCreatedAtDesc(subscription.getId()).orElse(null);
-        if (payment == null || payment.getStatus() == PaymentStatus.FAILED || payment.getStatus() == PaymentStatus.PENDING) return null;
-        BigDecimal refundable = calculateRefundable(subscription, payment);
-        if (refundable.signum() <= 0) return null;
-        String key = "subscription-cancel-" + subscription.getId() + "-" + refundable;
-        return executeRefund(subscription, payment, refundable, key, actorId, reason);
+        requireAttributedPayments(subscription);
+        Refund result = null;
+        for (var delivery : deliveryRepository.findBySubscriptionId(subscription.getId())) {
+            if (delivery.getStatus() != DeliveryStatus.CANCELLED && delivery.getStatus() != DeliveryStatus.SKIPPED) continue;
+            Refund refund = refundAllocated(subscription, delivery.getId(), new BigDecimal("9999999999.99"), actorId,
+                    reason, "subscription-cancel-" + subscription.getId() + "-" + delivery.getId());
+            if (refund != null && (result == null || result.getStatus() == RefundStatus.SUCCEEDED)) result = refund;
+        }
+        return result;
     }
 
     @Transactional
@@ -233,30 +247,65 @@ public class PaymentService {
 
     @Transactional
     public Refund refundForDeliveryChange(Subscription subscription, Long deliveryId, BigDecimal amount, Long actorId, String reason) {
-        Payment payment = paymentRepository.findFirstBySubscriptionIdOrderByCreatedAtDesc(subscription.getId()).orElse(null);
-        if (payment == null || payment.getPaidAt() == null) return null;
-        BigDecimal available = effectiveCardAmount(payment).subtract(payment.getRefundedAmount()).max(ZERO);
-        BigDecimal refundable = money(amount.min(available));
-        if (refundable.signum() <= 0) return null;
-        return executeRefund(subscription, payment, refundable, "delivery-change-" + deliveryId, actorId, reason);
+        return refundAllocated(subscription, deliveryId, amount, actorId, reason, "delivery-change-" + deliveryId);
     }
 
     @Transactional
     public Refund refundForModification(Subscription subscription, Long deliveryId, BigDecimal amount, Long actorId, String fingerprint) {
-        Payment payment = paymentRepository.findFirstBySubscriptionIdOrderByCreatedAtDesc(subscription.getId()).orElse(null);
-        if (payment == null || payment.getPaidAt() == null) return null;
-        BigDecimal refundable = money(amount.min(effectiveCardAmount(payment).subtract(payment.getRefundedAmount()).max(ZERO)));
-        return refundable.signum() <= 0 ? null : executeRefund(subscription, payment, refundable,
-                "delivery-modification-refund-" + deliveryId + "-" + fingerprint, actorId, "Teslimat değişikliği fiyat farkı");
+        return refundAllocated(subscription, deliveryId, amount, actorId, "Teslimat değişikliği fiyat farkı",
+                "modification-" + deliveryId + "-" + fingerprint);
+    }
+
+    private Refund refundAllocated(Subscription subscription, Long deliveryId, BigDecimal amount, Long actorId, String reason, String key) {
+        requireAttributedPayments(subscription);
+        BigDecimal remaining = amount;
+        Refund result = null;
+        for (PaymentAllocation allocation : allocationRepository.findByDeliveryIdOrderByIdDesc(deliveryId)) {
+            Payment payment = allocation.getPayment();
+            if (payment.getPaidAt() == null) continue;
+            String refundKey = key + "-" + allocation.getId();
+            Refund existing = refundRepository.findByIdempotencyKey(refundKey).orElse(null);
+            if (existing != null) {
+                remaining = remaining.subtract(existing.getAmount()).max(ZERO);
+                if (result == null || result.getStatus() == RefundStatus.SUCCEEDED) result = existing;
+                continue;
+            }
+            BigDecimal refundable = allocation.getAmount().subtract(allocation.getReturnedAmount()).min(remaining)
+                    .min(payment.getGrossAmount().subtract(payment.getRefundedAmount())).max(ZERO);
+            if (refundable.signum() <= 0) continue;
+            Refund refund = executeRefund(subscription, payment, refundable, refundKey, actorId, reason);
+            if (refund.getStatus() == RefundStatus.SUCCEEDED) {
+                allocation.setReturnedAmount(allocation.getReturnedAmount().add(refundable));
+                allocationRepository.save(allocation);
+            }
+            remaining = remaining.subtract(refundable);
+            if (result == null || result.getStatus() == RefundStatus.SUCCEEDED) result = refund;
+        }
+        return result;
     }
 
     private Refund executeRefund(Subscription subscription, Payment payment, BigDecimal refundable, String key, Long actorId, String reason) {
+        return executeRefund(subscription, payment, refundable, key, actorId, reason, false);
+    }
+
+    private Refund executeRefund(Subscription subscription, Payment payment, BigDecimal refundable, String key, Long actorId, String reason, boolean creditOnly) {
+        paymentRepository.findByIdForUpdate(payment.getId());
         Optional<Refund> existing = refundRepository.findByIdempotencyKey(key);
         if (existing.isPresent()) return existing.get();
+        if (payoutItemRepository.existsByPaymentId(payment.getId())) {
+            throw new BusinessException("PAYOUT_RECONCILIATION_REQUIRED", "Hakedişe alınmış ödeme için iade önce finans tarafından uzlaştırılmalıdır.");
+        }
         Refund refund = refundRepository.save(Refund.builder().payment(payment).subscription(subscription).status(RefundStatus.PENDING)
                 .idempotencyKey(key).currency(payment.getCurrency()).amount(refundable).reason(reason).build());
-        PaymentProvider.RefundResult result = provider.refund(payment.getProviderPaymentId(), refundable, payment.getCurrency(), key);
+        BigDecimal balanceReturn = creditOnly ? refundable : money(refundable.multiply(payment.getBalanceAmount())
+                .divide(payment.getGrossAmount(), 8, RoundingMode.HALF_UP));
+        BigDecimal cardReturn = refundable.subtract(balanceReturn);
+        PaymentProvider.RefundResult result = cardReturn.signum() == 0
+                ? new PaymentProvider.RefundResult(true, "MEAL_BALANCE", "00", null)
+                : provider.refund(payment.getProviderPaymentId(), cardReturn, payment.getCurrency(), key);
         if (result.successful()) {
+            if (balanceReturn.signum() > 0) mealBalanceService.credit(payment.getCustomer(), subscription, null, balanceReturn,
+                    MealBalanceTransactionType.DELIVERY_REDUCTION_CREDIT, "refund-balance-" + key, reason);
             refund.setStatus(RefundStatus.SUCCEEDED); refund.setProviderRefundId(result.providerRefundId()); refund.setRefundedAt(Instant.now());
             payment.setRefundedAmount(payment.getRefundedAmount().add(refundable));
             BigDecimal remainingRatioBefore = BigDecimal.ONE.subtract(payment.getRefundedAmount().subtract(refundable).divide(payment.getGrossAmount(), 8, RoundingMode.HALF_UP));
@@ -354,7 +403,106 @@ public class PaymentService {
                 .balanceAmount(ZERO).cardAmount(gross).netAmount(gross.subtract(commission)).build());
         if (useMealBalance) fundFromMealBalance(payment, deliveryId, balanceType, balanceDescription, 0);
         requirePaymentMethodWhenNeeded(payment);
+        if (deliveryId != null) {
+            var delivery = deliveryRepository.findById(deliveryId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Teslimat", deliveryId));
+            allocationRepository.save(PaymentAllocation.builder().payment(payment).delivery(delivery).amount(gross).build());
+        } else if (key.startsWith("subscription-week-charge-")) {
+            LocalDate start = LocalDate.parse(key.substring(key.length() - 10));
+            var deliveries = deliveryRepository.findBySubscriptionId(subscription.getId());
+            for (var delivery : deliveries) {
+                if (delivery.getDeliveryDate().isBefore(start) || delivery.getDeliveryDate().isAfter(start.plusDays(6))
+                        || delivery.getStatus() == DeliveryStatus.CANCELLED || delivery.getStatus() == DeliveryStatus.SKIPPED) continue;
+                allocationRepository.save(PaymentAllocation.builder().payment(payment).delivery(delivery)
+                        .amount(baseDue(subscription, deliveries, delivery)).build());
+            }
+        }
         return payment;
+    }
+
+    private BigDecimal baseDue(Subscription subscription, List<com.mealflex.delivery.entity.SubscriptionDelivery> deliveries,
+                               com.mealflex.delivery.entity.SubscriptionDelivery delivery) {
+        BigDecimal deferred = modificationRepository.findBySubscriptionIdOrderByCreatedAtDesc(subscription.getId()).stream()
+                .filter(h -> h.getDelivery().getId().equals(delivery.getId()))
+                .filter(h -> h.getRequestStatus() == com.mealflex.subscription.entity.DeliveryModificationRequestStatus.APPROVED)
+                .map(h -> h.getDeferredReduction() == null ? ZERO : h.getDeferredReduction()).reduce(ZERO, BigDecimal::add);
+        return SubscriptionBasePricing.forDate(subscription, deliveries, delivery.getDeliveryDate()).subtract(deferred).max(ZERO);
+    }
+
+    private void refreshUnpaidWeeklyPayment(Payment payment) {
+        if (!payment.getIdempotencyKey().startsWith("subscription-week-charge-") || payment.getPaidAt() != null
+                || payment.getStatus() != PaymentStatus.FAILED) return;
+        var allocations = allocationRepository.findByPaymentId(payment.getId());
+        if (allocations.isEmpty()) throw new BusinessException("LEGACY_PAYMENT_RECONCILIATION_REQUIRED", "Eski haftalık tahsilat uzlaştırılmalıdır.");
+        var deliveries = deliveryRepository.findBySubscriptionId(payment.getSubscription().getId());
+        BigDecimal total = ZERO;
+        for (var allocation : allocations) {
+            var delivery = allocation.getDelivery();
+            BigDecimal due = delivery.getStatus() == DeliveryStatus.CANCELLED || delivery.getStatus() == DeliveryStatus.SKIPPED ? ZERO
+                    : baseDue(payment.getSubscription(), deliveries, delivery);
+            allocation.setAmount(due); total = total.add(due);
+        }
+        if (total.compareTo(payment.getGrossAmount()) == 0) return;
+        if (payment.getBalanceAmount().signum() > 0 || payment.getStatus() == PaymentStatus.PROCESSING) {
+            throw new BusinessException("PAYMENT_RECONCILIATION_REQUIRED", "İşlenmekte olan ödeme önce uzlaştırılmalıdır.");
+        }
+        BigDecimal rate = payment.getGrossAmount().signum() == 0 ? ZERO
+                : payment.getCommissionAmount().divide(payment.getGrossAmount(), 8, RoundingMode.HALF_UP);
+        BigDecimal taxRate = payment.getGrossAmount().signum() == 0 ? ZERO
+                : payment.getCommissionTaxAmount().divide(payment.getGrossAmount(), 8, RoundingMode.HALF_UP);
+        payment.setGrossAmount(total); payment.setCardAmount(total);
+        payment.setCommissionAmount(money(total.multiply(rate)));
+        payment.setCommissionTaxAmount(money(total.multiply(taxRate)));
+        payment.setNetAmount(total.subtract(payment.getCommissionAmount()).subtract(payment.getCommissionTaxAmount()));
+        allocationRepository.saveAll(allocations); paymentRepository.save(payment);
+    }
+
+    @Transactional(readOnly=true)
+    public BigDecimal deliveryAdjustmentValue(Subscription subscription, com.mealflex.delivery.entity.SubscriptionDelivery delivery) {
+        BigDecimal changes = modificationRepository.findBySubscriptionIdOrderByCreatedAtDesc(subscription.getId()).stream()
+                .filter(h -> h.getDelivery().getId().equals(delivery.getId()))
+                .filter(h -> h.getRequestStatus() == com.mealflex.subscription.entity.DeliveryModificationRequestStatus.APPROVED
+                        || h.getRequestStatus() == com.mealflex.subscription.entity.DeliveryModificationRequestStatus.APPLIED)
+                .map(com.mealflex.subscription.entity.DeliveryModificationHistory::getPriceDifference).reduce(ZERO, BigDecimal::add);
+        return SubscriptionBasePricing.forDate(subscription, deliveryRepository.findBySubscriptionId(subscription.getId()),
+                delivery.getDeliveryDate()).add(changes).max(ZERO);
+    }
+
+    /** Returns only money already collected; the caller defers the unpaid remainder. */
+    @Transactional
+    public BigDecimal creditPaidReduction(Subscription subscription, Long deliveryId, BigDecimal amount, Long actorId, String key) {
+        BigDecimal remaining = amount;
+        requireAttributedPayments(subscription);
+        for (PaymentAllocation allocation : allocationRepository.findByDeliveryIdOrderByIdDesc(deliveryId)) {
+            if (allocation.getPayment().getPaidAt() == null) continue;
+            Refund existing = refundRepository.findByIdempotencyKey(key + "-" + allocation.getId()).orElse(null);
+            if (existing != null && existing.getStatus() == RefundStatus.SUCCEEDED) {
+                remaining = remaining.subtract(existing.getAmount()).max(ZERO);
+                continue;
+            }
+            BigDecimal returned = allocation.getAmount().subtract(allocation.getReturnedAmount()).min(remaining)
+                    .min(allocation.getPayment().getGrossAmount().subtract(allocation.getPayment().getRefundedAmount())).max(ZERO);
+            if (returned.signum() == 0) continue;
+            Refund refund = executeRefund(subscription, allocation.getPayment(), returned, key + "-" + allocation.getId(), actorId,
+                    "Teslimat kişi azaltımı için öğün bakiyesi", true);
+            if (refund.getStatus() == RefundStatus.SUCCEEDED) {
+                allocation.setReturnedAmount(allocation.getReturnedAmount().add(returned));
+                allocationRepository.save(allocation);
+                remaining = remaining.subtract(returned);
+            }
+        }
+        return amount.subtract(remaining);
+    }
+
+    private void requireAttributedPayments(Subscription subscription) {
+        userRepository.findByIdForSubscriptionRequest(subscription.getCustomer().getId());
+        for (Payment payment : paymentRepository.findBySubscriptionIdOrderByCreatedAtDesc(subscription.getId())) {
+            if (payment.getPaidAt() != null && payment.getRefundedAmount().compareTo(payment.getGrossAmount()) < 0
+                    && allocationRepository.findByPaymentId(payment.getId()).isEmpty()) {
+                throw new BusinessException("LEGACY_PAYMENT_RECONCILIATION_REQUIRED",
+                        "Eski ödeme kayıtları teslimatlarla uzlaştırılmadan otomatik iade veya azaltım yapılamaz.");
+            }
+        }
     }
 
     private void fundFromMealBalance(Payment payment, Long deliveryId, MealBalanceTransactionType type, String description, long attempts) {
