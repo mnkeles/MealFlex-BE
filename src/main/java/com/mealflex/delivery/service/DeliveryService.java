@@ -59,6 +59,7 @@ public class DeliveryService {
     private final StoreStaffRepository staffRepository;
     private final SellerPayoutService sellerPayoutService;
     private final PaymentRepository paymentRepository;
+    private final FailedDeliveryCompensationService failedDeliveryCompensationService;
 
     public List<DeliveryResponse> getTodaysDeliveries(Long userId) {
         List<Store> stores = storeRepository.findAllBySellerUserIdAndDeletedAtIsNull(userId);
@@ -239,6 +240,9 @@ public class DeliveryService {
         if (request.courierLongitude() != null) delivery.setCourierLongitude(request.courierLongitude());
         if (request.notes() != null) delivery.setNotes(request.notes());
         delivery = deliveryRepository.save(delivery);
+        if (target == DeliveryStatus.FAILED) {
+            failedDeliveryCompensationService.offer(delivery);
+        }
         sellerPayoutService.scheduleAfterFinalWeeklyDelivery(delivery);
         String title = switch (target) { case PREPARING -> "Yemeğiniz hazırlanıyor"; case IN_TRANSIT -> "Siparişiniz yola çıktı"; case DELIVERED -> "Siparişiniz teslim edildi"; case DELIVERY_ATTEMPTED -> "Teslimat denemesi yapıldı"; case FAILED -> "Teslimat gerçekleştirilemedi"; default -> "Teslimat güncellendi"; };
         String message = delivery.getDeliveryDate() + " tarihli teslimatınız: " + title + "." + (request.delayMinutes() != null && request.delayMinutes() > 0 ? " Tahmini gecikme " + request.delayMinutes() + " dakika." : "");
@@ -371,6 +375,10 @@ public class DeliveryService {
         }
     }
 
+    public DeliveryResponse toDeliveryResponse(SubscriptionDelivery delivery) {
+        return toResponse(delivery);
+    }
+
     private DeliveryResponse toResponse(SubscriptionDelivery d) {
         String customerName = d.getSubscription().getCustomer().getFirstName() + " " +
                               d.getSubscription().getCustomer().getLastName();
@@ -407,6 +415,9 @@ public class DeliveryService {
                 .delayMinutes(d.getDelayMinutes())
                 .courierLatitude(d.getCourierLatitude())
                 .courierLongitude(d.getCourierLongitude())
+                .compensationStatus(d.getCompensationStatus())
+                .suggestedCompensationDate(d.getSuggestedCompensationDate())
+                .makeupSourceDeliveryId(d.getMakeupSourceDelivery() == null ? null : d.getMakeupSourceDelivery().getId())
                 .build();
     }
 

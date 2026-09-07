@@ -4,6 +4,8 @@ import com.mealflex.delivery.dto.DeliveryResponse;
 import com.mealflex.delivery.service.DeliveryService;
 import com.mealflex.delivery.dto.UpdateDeliveryStatusRequest;
 import com.mealflex.delivery.dto.CompleteDeliveryRequest;
+import com.mealflex.delivery.dto.RescheduleFailedDeliveryRequest;
+import com.mealflex.delivery.service.FailedDeliveryCompensationService;
 import jakarta.validation.Valid;
 import com.mealflex.security.UserPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
@@ -25,6 +27,7 @@ import com.mealflex.delivery.dto.RoutePlanResponse;
 public class SellerStoreDeliveryController {
 
     private final DeliveryService deliveryService;
+    private final FailedDeliveryCompensationService failedDeliveryCompensationService;
 
     @GetMapping("/today")
     @Operation(summary = "Seçili mağazanın bugünkü teslimatları")
@@ -76,5 +79,16 @@ public class SellerStoreDeliveryController {
             @PathVariable Long storeId, @PathVariable Long deliveryId,
             @Valid @RequestBody UpdateDeliveryStatusRequest request) {
         return ResponseEntity.ok(deliveryService.updateStatus(principal.getId(), storeId, deliveryId, request));
+    }
+
+    @PostMapping("/{deliveryId}/reschedule")
+    @Operation(summary = "Başarısız teslimat için ücretsiz telafi teslimatı planla")
+    public ResponseEntity<DeliveryResponse> rescheduleFailedDelivery(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable Long storeId,
+            @PathVariable Long deliveryId,
+            @Valid @RequestBody RescheduleFailedDeliveryRequest request) {
+        return ResponseEntity.ok(deliveryService.toDeliveryResponse(
+                failedDeliveryCompensationService.reschedule(principal.getId(), storeId, deliveryId, request)));
     }
 }

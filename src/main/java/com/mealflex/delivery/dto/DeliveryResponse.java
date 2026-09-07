@@ -1,6 +1,7 @@
 package com.mealflex.delivery.dto;
 
 import com.mealflex.delivery.entity.DeliveryStatus;
+import com.mealflex.delivery.entity.DeliveryCompensationStatus;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.Setter;
@@ -44,4 +45,7 @@ public class DeliveryResponse {
     private Integer delayMinutes;
     private java.math.BigDecimal courierLatitude;
     private java.math.BigDecimal courierLongitude;
+    private DeliveryCompensationStatus compensationStatus;
+    private LocalDate suggestedCompensationDate;
+    private Long makeupSourceDeliveryId;
 }

@@ -80,4 +80,14 @@ public class SubscriptionDelivery extends BaseEntity {
     @Column(nullable = false) @Builder.Default private String deliveryType = "STORE_COURIER";
     @Column(precision = 10, scale = 7) private BigDecimal courierLatitude;
     @Column(precision = 10, scale = 7) private BigDecimal courierLongitude;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 30)
+    private DeliveryCompensationStatus compensationStatus;
+
+    private LocalDate suggestedCompensationDate;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "makeup_source_delivery_id")
+    private SubscriptionDelivery makeupSourceDelivery;
 }

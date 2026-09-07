@@ -45,6 +45,10 @@ public interface SubscriptionDeliveryRepository extends JpaRepository<Subscripti
 
     boolean existsBySubscriptionIdAndStatusIn(Long subscriptionId, List<DeliveryStatus> statuses);
 
+    boolean existsBySubscriptionIdAndDeliveryDate(Long subscriptionId, LocalDate deliveryDate);
+
+    boolean existsByMakeupSourceDeliveryId(Long sourceDeliveryId);
+
     @Query("""
         SELECT COALESCE(SUM(d.personCount), 0) FROM SubscriptionDelivery d
         JOIN d.subscription s

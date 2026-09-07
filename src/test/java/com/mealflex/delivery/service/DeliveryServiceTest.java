@@ -52,6 +52,7 @@ class DeliveryServiceTest {
     @Mock private CourierRepository courierRepository;
     @Mock private StoreStaffRepository staffRepository;
     @Mock private SellerPayoutService sellerPayoutService;
+    @Mock private FailedDeliveryCompensationService failedDeliveryCompensationService;
     @InjectMocks private DeliveryService deliveryService;
 
     @Test
@@ -271,6 +272,7 @@ class DeliveryServiceTest {
         verify(delivery).setInTransitAt(any());
         verify(delivery).setDeliveryAttemptedAt(any());
         verify(delivery).setStatus(DeliveryStatus.FAILED);
+        verify(failedDeliveryCompensationService).offer(delivery);
         verify(deliveryRepository, org.mockito.Mockito.times(4)).save(delivery);
     }
 
