@@ -405,7 +405,6 @@ public class SubscriptionService {
                 .serviceDayCount(s.getServiceDayCount())
                 .totalAmount(s.getTotalAmount())
                 .status(s.getStatus())
-                .postponedCount(s.getPostponedCount())
                 .nextDeliveryDate(deliveryRepository
                         .findFirstBySubscriptionIdAndDeliveryDateGreaterThanEqualAndStatusNotOrderByDeliveryDateAsc(
                                 s.getId(), SubscriptionDatePolicy.today(), DeliveryStatus.CANCELLED)
@@ -439,14 +438,14 @@ public class SubscriptionService {
     @Transactional(readOnly = true)
     public long unreadPendingCount(Long userId, Long storeId) {
         storeAccessService.requireOwnedStore(userId, storeId);
-        return subscriptionRepository.countByStoreIdAndStatusInAndSellerViewedAtIsNull(storeId, List.of(SubscriptionStatus.PENDING_APPROVAL, SubscriptionStatus.POSTPONED));
+        return subscriptionRepository.countByStoreIdAndStatusInAndSellerViewedAtIsNull(storeId, List.of(SubscriptionStatus.PENDING_APPROVAL));
     }
 
     @Transactional
     public void markPendingViewed(Long userId, Long storeId) {
         storeAccessService.requireOwnedStore(userId, storeId);
         Instant now = Instant.now();
-        subscriptionRepository.findByStoreIdAndStatusIn(storeId, List.of(SubscriptionStatus.PENDING_APPROVAL, SubscriptionStatus.POSTPONED)).stream()
+        subscriptionRepository.findByStoreIdAndStatusIn(storeId, List.of(SubscriptionStatus.PENDING_APPROVAL)).stream()
                 .filter(subscription -> subscription.getSellerViewedAt() == null)
                 .forEach(subscription -> { subscription.setSellerViewedAt(now); subscriptionRepository.save(subscription); });
     }

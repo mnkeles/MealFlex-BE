@@ -64,7 +64,6 @@ class SubscriptionSchedulerTest {
                 .endDate(today.plusDays(4))
                 .serviceDayCount(5)
                 .status(SubscriptionStatus.PENDING_APPROVAL)
-                .postponedCount(0)
                 .build();
         subscription.setId(50L);
         lenient().when(subscriptionRepository.findByStatusAndStartDateLessThanEqual(SubscriptionStatus.APPROVED, today))
@@ -137,20 +136,4 @@ class SubscriptionSchedulerTest {
                 eq(Map.of("subscriptionId", 50L, "status", "CANCELLED")));
     }
 
-    @Test
-    void expiredApprovalDeadlineCancelsRegardlessOfLegacyPostponementCount() {
-        subscription.setPostponedCount(3);
-        subscription.setApprovalDeadlineAt(Instant.now().minusSeconds(60));
-        when(subscriptionRepository.findByStatusInAndApprovalDeadlineAtBefore(any(), any()))
-                .thenReturn(List.of(subscription));
-
-        scheduler.processApprovalDeadlines();
-
-        assertThat(subscription.getStatus()).isEqualTo(SubscriptionStatus.CANCELLED);
-        assertThat(subscription.getCancelledAt()).isNotNull();
-        assertThat(subscription.getCancellationReason()).contains("7 gün");
-        verify(subscriptionRepository).save(subscription);
-        verify(eventStream).publish(eq(7L), eq("subscription-sla-expired"),
-                eq(Map.of("subscriptionId", 50L, "status", "CANCELLED")));
-    }
 }

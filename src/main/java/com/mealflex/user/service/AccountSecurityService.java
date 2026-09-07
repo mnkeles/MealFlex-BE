@@ -112,7 +112,7 @@ public class AccountSecurityService {
     @Transactional
     public void deleteAccount(Long userId,String confirmation) {
         if (!"HESABIMI SIL".equals(confirmation)) throw new BusinessException("CONFIRMATION_REQUIRED", "Onay alanına HESABIMI SIL yazın.");
-        if (!subscriptionRepository.findByCustomerIdAndStatusIn(userId,List.of(SubscriptionStatus.PENDING_APPROVAL,SubscriptionStatus.APPROVED,SubscriptionStatus.ACTIVE,SubscriptionStatus.PAYMENT_SUSPENDED,SubscriptionStatus.POSTPONED),org.springframework.data.domain.Pageable.ofSize(1)).isEmpty()) throw new BusinessException("ACTIVE_SUBSCRIPTION_EXISTS","Aktif veya bekleyen abonelik varken hesap silinemez.");
+        if (!subscriptionRepository.findByCustomerIdAndStatusIn(userId,List.of(SubscriptionStatus.PENDING_APPROVAL,SubscriptionStatus.APPROVED,SubscriptionStatus.ACTIVE,SubscriptionStatus.PAYMENT_SUSPENDED),org.springframework.data.domain.Pageable.ofSize(1)).isEmpty()) throw new BusinessException("ACTIVE_SUBSCRIPTION_EXISTS","Aktif veya bekleyen abonelik varken hesap silinemez.");
         User user=user(userId); revokeAll(userId); user.setActive(false); user.setAccountDeletedAt(Instant.now()); user.setEmail("deleted+"+userId+"-"+System.currentTimeMillis()+"@mealflex.invalid"); user.setPhone(null); user.setFirstName("Silinmiş"); user.setLastName("Kullanıcı"); user.setPassword(passwordEncoder.encode(UUID.randomUUID().toString())); userRepository.save(user); auditLogRepository.save(AuditLog.builder().actorId(userId).action("ACCOUNT_ANONYMIZED").entityType("USER").entityId(userId).oldValue("active=true").newValue("active=false; personal data anonymized").timestamp(Instant.now()).build());
     }
 

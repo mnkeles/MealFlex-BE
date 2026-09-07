@@ -30,7 +30,6 @@ public class SubscriptionResponse {
     private Integer serviceDayCount;
     private BigDecimal totalAmount;
     private SubscriptionStatus status;
-    private Integer postponedCount;
     private LocalDate nextDeliveryDate;
     private String cancellationReason;
     private Instant approvedAt;

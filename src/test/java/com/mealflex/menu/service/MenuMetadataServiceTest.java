@@ -33,14 +33,14 @@ class MenuMetadataServiceTest {
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = {"toggle", "delete", "bulk"})
-    void postponedSubscriptionPreventsMenuRemoval(String action) {
+    void pendingSubscriptionPreventsMenuRemoval(String action) {
         Store store = Store.builder().name("Owned").build(); store.setId(5L);
         Menu menu = Menu.builder().store(store).name("Menu").active(true).build(); menu.setId(7L);
         when(storeRepository.findAllBySellerUserIdAndDeletedAtIsNull(9L)).thenReturn(List.of(store));
         when(menuRepository.findById(7L)).thenReturn(Optional.of(menu));
         when(subscriptionRepository.existsByMenuIdAndStatusIn(eq(7L), any()))
                 .thenAnswer(invocation -> ((List<?>) invocation.getArgument(1))
-                        .contains(com.mealflex.subscription.entity.SubscriptionStatus.POSTPONED));
+                        .contains(com.mealflex.subscription.entity.SubscriptionStatus.PENDING_APPROVAL));
         assertThrows(BusinessException.class, () -> {
             if (action.equals("toggle")) menuService.toggleActive(9L, 7L);
             else if (action.equals("delete")) menuService.deleteMenu(9L, 7L);

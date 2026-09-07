@@ -90,10 +90,6 @@ public class Subscription extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String cancellationReason;
 
-    @Column(nullable = false)
-    @Builder.Default
-    private Integer postponedCount = 0;
-
     @Column(length = 100)
     private String idempotencyKey;
 

@@ -336,13 +336,13 @@ class SubscriptionServiceTest {
     @Test
     void sellerLiveRequestInboxUsesOwnedStoreSseUnreadCounterAndMarksOnlyNewRequestsViewed() {
         Subscription unread = Subscription.builder().status(SubscriptionStatus.PENDING_APPROVAL).build(); unread.setId(61L);
-        Subscription alreadyViewed = Subscription.builder().status(SubscriptionStatus.POSTPONED).sellerViewedAt(Instant.now().minusSeconds(60)).build(); alreadyViewed.setId(62L);
+        Subscription alreadyViewed = Subscription.builder().status(SubscriptionStatus.PENDING_APPROVAL).sellerViewedAt(Instant.now().minusSeconds(60)).build(); alreadyViewed.setId(62L);
         SseEmitter emitter = new SseEmitter();
         when(eventStream.subscribe(20L)).thenReturn(emitter);
         when(subscriptionRepository.countByStoreIdAndStatusInAndSellerViewedAtIsNull(20L,
-                List.of(SubscriptionStatus.PENDING_APPROVAL, SubscriptionStatus.POSTPONED))).thenReturn(1L);
+                List.of(SubscriptionStatus.PENDING_APPROVAL))).thenReturn(1L);
         when(subscriptionRepository.findByStoreIdAndStatusIn(20L,
-                List.of(SubscriptionStatus.PENDING_APPROVAL, SubscriptionStatus.POSTPONED))).thenReturn(List.of(unread, alreadyViewed));
+                List.of(SubscriptionStatus.PENDING_APPROVAL))).thenReturn(List.of(unread, alreadyViewed));
 
         assertThat(service.subscribeToStoreEvents(10L, 20L)).isSameAs(emitter);
         assertThat(service.unreadPendingCount(10L, 20L)).isEqualTo(1L);

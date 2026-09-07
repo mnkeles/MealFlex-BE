@@ -164,7 +164,7 @@ public class SubscriptionLifecycleService {
     }
 
     private boolean isAwaitingSellerDecision(SubscriptionStatus status) {
-        return status == SubscriptionStatus.PENDING_APPROVAL || status == SubscriptionStatus.POSTPONED;
+        return status == SubscriptionStatus.PENDING_APPROVAL;
     }
 
     private void audit(Long actorId, String action, Long subscriptionId, String oldValue, String newValue) {

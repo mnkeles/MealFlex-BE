@@ -6,7 +6,6 @@ public enum SubscriptionStatus {
     ACTIVE,
     PAYMENT_SUSPENDED,
     REJECTED,
-    POSTPONED,
     COMPLETED,
     CANCELLED
 }

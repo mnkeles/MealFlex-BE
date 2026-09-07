@@ -34,7 +34,7 @@ public class SubscriptionServiceDayChangeService {
     private static final List<SubscriptionStatus> PLANNED_SUBSCRIPTION_STATUSES = List.of(
             SubscriptionStatus.APPROVED,
             SubscriptionStatus.ACTIVE,
-            SubscriptionStatus.POSTPONED, SubscriptionStatus.PAYMENT_SUSPENDED);
+            SubscriptionStatus.PAYMENT_SUSPENDED);
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter
             .ofPattern("d MMMM yyyy", Locale.forLanguageTag("tr-TR"));
     private static final String CHANGE_REASON_PREFIX = "SERVICE_DAY_CHANGE";
