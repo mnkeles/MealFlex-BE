@@ -31,6 +31,8 @@ class SubscriptionServiceDayChangeServiceTest {
     @Mock private SubscriptionRepository subscriptionRepository;
     @Mock private SubscriptionDeliveryRepository deliveryRepository;
     @Mock private NotificationEventService notificationEventService;
+    @Mock private SubscriptionDeliveryPlanningService deliveryPlanningService;
+    @Mock private com.mealflex.store.service.StoreCapacityService capacityService;
     @InjectMocks private SubscriptionServiceDayChangeService service;
 
     @Test
@@ -40,7 +42,8 @@ class SubscriptionServiceDayChangeServiceTest {
         User customer = User.builder().email("ayse@test.local").password("x").build();
         customer.setId(7L);
         Subscription subscription = Subscription.builder()
-                .store(store).customer(customer).status(SubscriptionStatus.ACTIVE).build();
+                .store(store).customer(customer).status(SubscriptionStatus.ACTIVE)
+                .endDate(LocalDate.of(2026, 9, 23)).build();
         subscription.setId(11L);
 
         LocalDate effectiveFrom = LocalDate.of(2026, 9, 14);
@@ -54,22 +57,28 @@ class SubscriptionServiceDayChangeServiceTest {
                 .thenReturn(List.of(subscription));
         when(deliveryRepository.findBySubscriptionId(11L))
                 .thenReturn(List.of(protectedWeekDelivery, affectedWednesday, unaffectedThursday, alreadyCancelled));
+        when(deliveryPlanningService.calculateServiceDays(eq(5L), any(), any()))
+                .thenReturn(List.of(LocalDate.of(2026, 9, 24)));
+        when(deliveryPlanningService.isDeliveryTimeAvailable(eq(5L), any(), anyList())).thenReturn(true);
 
         int affectedSubscriptions = service.applyClosedServiceDays(
                 5L, Set.of(DayOfWeek.WEDNESDAY), effectiveFrom);
 
         assertThat(affectedSubscriptions).isEqualTo(1);
         assertThat(protectedWeekDelivery.getStatus()).isEqualTo(DeliveryStatus.SCHEDULED);
-        assertThat(affectedWednesday.getStatus()).isEqualTo(DeliveryStatus.CANCELLED);
-        assertThat(affectedWednesday.getChangeReason()).contains("SERVICE_DAY_CHANGE", "Çarşamba");
+        assertThat(affectedWednesday.getStatus()).isEqualTo(DeliveryStatus.SCHEDULED);
+        assertThat(affectedWednesday.getDeliveryDate()).isEqualTo(LocalDate.of(2026, 9, 24));
+        assertThat(affectedWednesday.getChangeReason()).contains("SERVICE_DAY_CHANGE", "Çarşamba", "2026-09-16");
         assertThat(unaffectedThursday.getStatus()).isEqualTo(DeliveryStatus.SCHEDULED);
         assertThat(alreadyCancelled.getStatus()).isEqualTo(DeliveryStatus.CANCELLED);
-        verify(deliveryRepository).saveAll(List.of(affectedWednesday));
+        verify(deliveryRepository).save(affectedWednesday);
+        verify(capacityService).reserveOrThrow(5L, LocalDate.of(2026, 9, 24), 10, 0);
+        verify(subscriptionRepository).save(subscription);
 
         ArgumentCaptor<Notification> notification = ArgumentCaptor.forClass(Notification.class);
         verify(notificationEventService).publish(notification.capture());
         assertThat(notification.getValue().getUser()).isSameAs(customer);
-        assertThat(notification.getValue().getMessage()).contains("14 Eylül 2026", "Çarşamba");
+        assertThat(notification.getValue().getMessage()).contains("14 Eylül 2026", "Çarşamba", "2026-09-16 → 2026-09-24");
     }
 
     @Test
@@ -87,7 +96,7 @@ class SubscriptionServiceDayChangeServiceTest {
                 5L, Set.of(DayOfWeek.WEDNESDAY), LocalDate.of(2026, 9, 14));
 
         assertThat(affectedSubscriptions).isZero();
-        verify(deliveryRepository, never()).saveAll(anyList());
+        verify(deliveryRepository, never()).save(any());
         verifyNoInteractions(notificationEventService);
     }
 
@@ -95,6 +104,8 @@ class SubscriptionServiceDayChangeServiceTest {
         return SubscriptionDelivery.builder()
                 .subscription(subscription)
                 .deliveryDate(date)
+                .deliveryTime(java.time.LocalTime.NOON)
+                .personCount(10)
                 .status(DeliveryStatus.SCHEDULED)
                 .build();
     }

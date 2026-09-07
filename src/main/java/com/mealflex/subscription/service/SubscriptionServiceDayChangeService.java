@@ -8,6 +8,7 @@ import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.subscription.entity.Subscription;
 import com.mealflex.subscription.entity.SubscriptionStatus;
 import com.mealflex.subscription.repository.SubscriptionRepository;
+import com.mealflex.store.service.StoreCapacityService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,11 +42,14 @@ public class SubscriptionServiceDayChangeService {
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionDeliveryRepository deliveryRepository;
     private final NotificationEventService notificationEventService;
+    private final SubscriptionDeliveryPlanningService deliveryPlanningService;
+    private final StoreCapacityService capacityService;
 
     /**
-     * Cancels only future, scheduled deliveries that fall on the newly closed
-     * recurring days. Historical rows and the two protected weeks before the
-     * supplied effective date remain untouched.
+     * Moves only future, scheduled deliveries that fall on newly closed recurring
+     * days to the end of the subscription. Historical rows and the two protected
+     * weeks before the supplied effective date remain untouched; paid service rights
+     * and payment allocations stay attached to the original delivery rows.
      */
     @Transactional
     public int applyClosedServiceDays(Long storeId, Set<DayOfWeek> closedDays, LocalDate effectiveFrom) {
@@ -61,29 +65,52 @@ public class SubscriptionServiceDayChangeService {
 
         for (Subscription subscription : subscriptionRepository.findByStoreIdAndStatusIn(
                 storeId, PLANNED_SUBSCRIPTION_STATUSES)) {
-            List<SubscriptionDelivery> deliveriesToCancel = deliveryRepository
+            List<SubscriptionDelivery> deliveriesToMove = deliveryRepository
                     .findBySubscriptionId(subscription.getId()).stream()
                     .filter(delivery -> !delivery.getDeliveryDate().isBefore(effectiveFrom))
                     .filter(delivery -> closedDays.contains(delivery.getDeliveryDate().getDayOfWeek()))
                     .filter(delivery -> delivery.getStatus() == DeliveryStatus.SCHEDULED)
-                    .peek(delivery -> {
-                        delivery.setStatus(DeliveryStatus.CANCELLED);
-                        delivery.setChangeReason(CHANGE_REASON_PREFIX + ": " + closedDayText);
-                        delivery.setStatusChangedAt(Instant.now());
-                    })
+                    .sorted(java.util.Comparator.comparing(SubscriptionDelivery::getDeliveryDate))
                     .toList();
 
-            if (deliveriesToCancel.isEmpty()) {
+            if (deliveriesToMove.isEmpty()) {
                 continue;
             }
 
-            deliveryRepository.saveAll(deliveriesToCancel);
+            Set<LocalDate> occupiedDates = deliveryRepository.findBySubscriptionId(subscription.getId()).stream()
+                    .map(SubscriptionDelivery::getDeliveryDate)
+                    .collect(Collectors.toCollection(java.util.HashSet::new));
+            LocalDate searchFrom = occupiedDates.stream().max(LocalDate::compareTo)
+                    .orElse(subscription.getEndDate()).plusDays(1);
+            List<String> movedDates = new java.util.ArrayList<>();
+            for (SubscriptionDelivery delivery : deliveriesToMove) {
+                LocalDate oldDate = delivery.getDeliveryDate();
+                LocalDate replacement = findReplacementDate(subscription, delivery, searchFrom, occupiedDates);
+                capacityService.reserveOrThrow(storeId, replacement, delivery.getPersonCount(), 0);
+                delivery.setDeliveryDate(replacement);
+                delivery.setChangeReason(CHANGE_REASON_PREFIX + ": " + oldDate + " -> " + replacement
+                        + " (" + closedDayText + ")");
+                delivery.setChangedAt(Instant.now());
+                delivery.setStatusChangedAt(Instant.now());
+                deliveryRepository.save(delivery);
+                occupiedDates.add(replacement);
+                searchFrom = replacement.plusDays(1);
+                movedDates.add(oldDate + " → " + replacement);
+            }
+            LocalDate newEndDate = deliveriesToMove.stream().map(SubscriptionDelivery::getDeliveryDate)
+                    .max(LocalDate::compareTo).orElse(subscription.getEndDate());
+            if (newEndDate.isAfter(subscription.getEndDate())) {
+                subscription.setEndDate(newEndDate);
+                subscriptionRepository.save(subscription);
+            }
             notificationEventService.publish(Notification.builder()
                     .user(subscription.getCustomer())
                     .title("Teslimat günleriniz güncellendi")
                     .message(subscription.getStore().getName() + " işletmesinin çalışma günleri güncellendi. "
                             + effectiveFrom.format(DATE_FORMAT) + " tarihinden itibaren " + closedDayText
-                            + " günlerinde teslimat yapılmayacak. Bu hafta ve sonraki hafta mevcut planınız devam eder.")
+                            + " günlerinde teslimat yapılmayacak. Bu hafta ve sonraki hafta mevcut planınız devam eder. "
+                            + "İptal edilen hizmet hakkınız kaybolmadı; teslimatlar abonelik sonuna taşındı: "
+                            + String.join(", ", movedDates) + ".")
                     .referenceType("SUBSCRIPTION")
                     .referenceId(subscription.getId())
                     .build());
@@ -91,6 +118,29 @@ public class SubscriptionServiceDayChangeService {
         }
 
         return affectedSubscriptionCount;
+    }
+
+    private LocalDate findReplacementDate(Subscription subscription, SubscriptionDelivery delivery,
+            LocalDate searchFrom, Set<LocalDate> occupiedDates) {
+        LocalDate searchEnd = searchFrom.plusYears(1);
+        for (LocalDate candidate = searchFrom; !candidate.isAfter(searchEnd); candidate = candidate.plusDays(1)) {
+            if (occupiedDates.contains(candidate)) continue;
+            if (deliveryPlanningService.calculateServiceDays(subscription.getStore().getId(), candidate, candidate).isEmpty()) {
+                continue;
+            }
+            if (!deliveryPlanningService.isDeliveryTimeAvailable(
+                    subscription.getStore().getId(), delivery.getDeliveryTime(), List.of(candidate))) {
+                continue;
+            }
+            try {
+                capacityService.checkAvailability(subscription.getStore(), List.of(candidate), delivery.getPersonCount());
+                return candidate;
+            } catch (com.mealflex.common.exception.BusinessException exception) {
+                if (!"STORE_DAILY_CAPACITY_EXCEEDED".equals(exception.getCode())) throw exception;
+            }
+        }
+        throw new com.mealflex.common.exception.BusinessException("COMPENSATION_DATE_NOT_AVAILABLE",
+                "Kapatılan çalışma günü için bir yıl içinde uygun telafi tarihi bulunamadı.");
     }
 
     private String toTurkishDayName(DayOfWeek dayOfWeek) {
