@@ -51,6 +51,20 @@ class AdminFinanceControllerTest {
     }
 
     @Test
+    void legacyAllocationRequiresRecentAuthenticationBeforeFinanceWrite() {
+        AdminFinanceService financeService = mock(AdminFinanceService.class);
+        AccountSecurityService security = mock(AccountSecurityService.class);
+        AdminFinanceController controller = new AdminFinanceController(financeService, security,
+                mock(FinanceReconciliationService.class));
+        UserPrincipal admin = mock(UserPrincipal.class); when(admin.getId()).thenReturn(1L);
+        var request = new com.mealflex.admin.dto.LegacyPaymentAllocationRequest();
+        doThrow(new BusinessException("REAUTH_REQUIRED", "Yeniden doğrulama gerekli."))
+                .when(security).requireRecentAuthentication(1L,"expired");
+        assertThrows(BusinessException.class, () -> controller.reconcileLegacyPayment(admin,10L,request,"expired"));
+        verify(financeService,never()).reconcileLegacyPayment(anyLong(),anyLong(),any());
+    }
+
+    @Test
     void reconciliationResponseKeepsUnknownAmountsNull() {
         FinanceReconciliationService reconciliationService = mock(FinanceReconciliationService.class);
         AdminFinanceController controller = new AdminFinanceController(mock(AdminFinanceService.class),

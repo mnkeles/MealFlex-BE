@@ -18,6 +18,6 @@ public class SellerOperationsController {
         List<DeliveryResponse> deliveries = deliveryService.getStoreTodaysDeliveries(principal.getId(), storeId);
         long preparing = deliveries.stream().filter(d -> d.getStatus().name().equals("PREPARING")).count();
         long onRoute = deliveries.stream().filter(d -> d.getStatus().name().equals("IN_TRANSIT")).count();
-        return ResponseEntity.ok(Map.of("date", java.time.LocalDate.now(), "deliveries", deliveries, "preparingCount", preparing, "onRouteCount", onRoute));
+        return ResponseEntity.ok(Map.of("date", com.mealflex.subscription.service.SubscriptionDatePolicy.today(), "deliveries", deliveries, "preparingCount", preparing, "onRouteCount", onRoute));
     }
 }

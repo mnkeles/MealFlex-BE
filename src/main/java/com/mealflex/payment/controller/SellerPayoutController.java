@@ -15,7 +15,7 @@ public class SellerPayoutController {
     @GetMapping public FinanceSummaryResponse payouts(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long storeId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
-        LocalDate end = endDate == null ? LocalDate.now() : endDate;
+        LocalDate end = endDate == null ? com.mealflex.subscription.service.SubscriptionDatePolicy.today() : endDate;
         LocalDate start = startDate == null ? end.minusDays(90) : startDate;
         return paymentService.finance(principal.getId(), storeId, start, end);
     }

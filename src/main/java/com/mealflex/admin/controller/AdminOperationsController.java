@@ -43,11 +43,11 @@ public class AdminOperationsController {
     @GetMapping("/operations/summary")
     public Map<String, Object> operationsSummary(@RequestParam(required = false) LocalDate startDate,
             @RequestParam(required = false) LocalDate endDate, @RequestParam(required = false) Long storeId) {
-        LocalDate start = startDate == null ? LocalDate.now().minusDays(30) : startDate;
-        LocalDate end = endDate == null ? LocalDate.now() : endDate;
+        LocalDate start = startDate == null ? com.mealflex.subscription.service.SubscriptionDatePolicy.today().minusDays(30) : startDate;
+        LocalDate end = endDate == null ? com.mealflex.subscription.service.SubscriptionDatePolicy.today() : endDate;
         if (end.isBefore(start)) throw new BusinessException("INVALID_DATE_RANGE", "Bitiş tarihi başlangıç tarihinden önce olamaz.");
-        Instant rangeStart = start.atStartOfDay(ZoneId.systemDefault()).toInstant();
-        Instant rangeEnd = end.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant();
+        Instant rangeStart = start.atStartOfDay(com.mealflex.subscription.service.SubscriptionDatePolicy.ZONE).toInstant();
+        Instant rangeEnd = end.plusDays(1).atStartOfDay(com.mealflex.subscription.service.SubscriptionDatePolicy.ZONE).toInstant();
         Instant complaintDeadline = Instant.now().minus(Duration.ofHours(24));
         var deliveries = deliveryRepository.findAll().stream().filter(d -> !d.getDeliveryDate().isBefore(start)
                 && !d.getDeliveryDate().isAfter(end) && (storeId == null || d.getSubscription().getStore().getId().equals(storeId))).toList();
@@ -124,8 +124,8 @@ public class AdminOperationsController {
         if (startDate != null && endDate != null && endDate.isBefore(startDate)) {
             throw new BusinessException("INVALID_DATE_RANGE", "Bitiş tarihi başlangıç tarihinden önce olamaz.");
         }
-        Instant startedAt = startDate == null ? null : startDate.atStartOfDay(ZoneId.systemDefault()).toInstant();
-        Instant endedAt = endDate == null ? null : endDate.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant();
+        Instant startedAt = startDate == null ? null : startDate.atStartOfDay(com.mealflex.subscription.service.SubscriptionDatePolicy.ZONE).toInstant();
+        Instant endedAt = endDate == null ? null : endDate.plusDays(1).atStartOfDay(com.mealflex.subscription.service.SubscriptionDatePolicy.ZONE).toInstant();
         return auditLogRepository.searchForAdmin(actorId, normalized(entityType), normalized(action), startedAt, endedAt, pageable)
                 .map(this::auditView);
     }

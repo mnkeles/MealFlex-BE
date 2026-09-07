@@ -21,7 +21,7 @@ try {
     $env:MEALFLEX_QA_DB_URL = "jdbc:postgresql://localhost:5432/$taskDatabase"
     $env:MEALFLEX_QA_DB_USER = $taskDbUser
     $env:MEALFLEX_QA_DB_PASSWORD = $taskDbPassword
-    & mvn '-Dtest=PostgresFinanceTest' test
+    & mvn '-Dtest=Postgres*Test' test
     $taskTestExitCode = $LASTEXITCODE
     Write-Output "Isolated QA database retained for inspection: $taskDatabase"
     exit $taskTestExitCode

@@ -9,5 +9,5 @@ import java.time.LocalDate;
 @Getter @Builder
 public class AdminPayoutResponse {
     private Long id; private Long storeId; private String storeName; private String status; private LocalDate periodStart; private LocalDate periodEnd; private String currency;
-    private BigDecimal grossAmount; private BigDecimal commissionAmount; private BigDecimal refundAmount; private BigDecimal netAmount; private Instant scheduledAt; private Instant paidAt;
+    private BigDecimal grossAmount; private BigDecimal commissionAmount; private BigDecimal refundAmount; private BigDecimal adjustmentAmount; private BigDecimal netAmount; private Instant scheduledAt; private Instant paidAt;
 }

@@ -12,7 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.temporal.TemporalAdjusters;
 
 /** İlk gerçek teslimat günü Türkiye saatiyle 09:00'da haftalık ücreti tahsil eder. */
@@ -24,7 +23,7 @@ public class WeeklyPaymentScheduler {
     @Scheduled(cron = "0 0 9 * * *", zone = "Europe/Istanbul")
     @Transactional
     public void chargeWeeksStartingToday() {
-        chargeWeeksStartingOn(LocalDate.now(ZoneId.of("Europe/Istanbul")));
+        chargeWeeksStartingOn(com.mealflex.subscription.service.SubscriptionDatePolicy.today());
     }
 
     void chargeWeeksStartingOn(LocalDate today) {

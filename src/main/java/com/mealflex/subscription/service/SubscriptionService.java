@@ -401,7 +401,7 @@ public class SubscriptionService {
                 .postponedCount(s.getPostponedCount())
                 .nextDeliveryDate(deliveryRepository
                         .findFirstBySubscriptionIdAndDeliveryDateGreaterThanEqualAndStatusNotOrderByDeliveryDateAsc(
-                                s.getId(), LocalDate.now(), DeliveryStatus.CANCELLED)
+                                s.getId(), SubscriptionDatePolicy.today(), DeliveryStatus.CANCELLED)
                         .map(SubscriptionDelivery::getDeliveryDate).orElse(null))
                 .cancellationReason(s.getCancellationReason())
                 .approvedAt(s.getApprovedAt())

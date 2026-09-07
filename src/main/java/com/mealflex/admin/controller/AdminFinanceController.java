@@ -29,6 +29,14 @@ public class AdminFinanceController {
     public ResponseEntity<Page<AdminPaymentResponse>> payments(@RequestParam(required=false) PaymentStatus status,@RequestParam(required=false) Long storeId,@RequestParam(required=false) Long customerId,@RequestParam(required=false) String search,@RequestParam(required=false) LocalDate startDate,@RequestParam(required=false) LocalDate endDate,Pageable pageable){return ResponseEntity.ok(adminFinanceService.listPayments(status,storeId,customerId,search,startDate,endDate,pageable));}
     @PostMapping("/payments/{paymentId}/refunds") @Operation(summary="Yönetici olarak tam veya kısmi iade başlat")
     public ResponseEntity<AdminPaymentResponse> refund(@AuthenticationPrincipal UserPrincipal principal,@PathVariable Long paymentId,@Valid @RequestBody AdminRefundRequest request,@RequestHeader(value="X-Reauth-Token",required=false) String reauthToken){accountSecurityService.requireRecentAuthentication(principal.getId(),reauthToken);return ResponseEntity.ok(adminFinanceService.refund(principal.getId(),paymentId,request.getAmount(),request.getReason()));}
+    @PostMapping("/payments/{paymentId}/allocations/reconcile")
+    @Operation(summary="Geçmiş ödemeyi doğrulanmış teslimat paylarına uzlaştır")
+    public ResponseEntity<AdminPaymentResponse> reconcileLegacyPayment(@AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable Long paymentId, @Valid @RequestBody LegacyPaymentAllocationRequest request,
+            @RequestHeader(value="X-Reauth-Token",required=false) String reauthToken) {
+        accountSecurityService.requireRecentAuthentication(principal.getId(), reauthToken);
+        return ResponseEntity.ok(adminFinanceService.reconcileLegacyPayment(principal.getId(), paymentId, request));
+    }
     @GetMapping("/payouts") @Operation(summary="Satıcı hakedişleri")
     public ResponseEntity<List<AdminPayoutResponse>> payouts(@RequestParam(required=false) Long storeId){return ResponseEntity.ok(adminFinanceService.listPayouts(storeId));}
     @GetMapping("/finance-reconciliations") @Operation(summary="Günlük finansal mutabakat kayıtları")

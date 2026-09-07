@@ -11,6 +11,7 @@ import com.mealflex.delivery.repository.SubscriptionDeliveryRepository;
 import com.mealflex.notification.entity.Notification;
 import com.mealflex.notification.repository.NotificationRepository;
 import com.mealflex.subscription.service.SubscriptionEventStream;
+import com.mealflex.subscription.service.SubscriptionDatePolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -32,7 +33,7 @@ public class SubscriptionScheduler {
     private final AuditLogRepository auditLogRepository;
     private final SubscriptionEventStream eventStream;
 
-    @Scheduled(cron = "0 */15 * * * *")
+    @Scheduled(cron = "0 */15 * * * *", zone = "Europe/Istanbul")
     @Transactional
     public void processApprovalDeadlines() {
         Instant now = Instant.now();
@@ -58,10 +59,10 @@ public class SubscriptionScheduler {
                         sub.getStore().getName() + " için müşteri abonelik talebi onayınızı bekliyor."));
     }
 
-    @Scheduled(cron = "0 0 1 * * *")
+    @Scheduled(cron = "0 0 1 * * *", zone = "Europe/Istanbul")
     @Transactional
     public void processSubscriptions() {
-        LocalDate today = LocalDate.now();
+        LocalDate today = SubscriptionDatePolicy.today();
         log.info("Running subscription scheduler for date: {}", today);
 
         activateApprovedSubscriptions(today);

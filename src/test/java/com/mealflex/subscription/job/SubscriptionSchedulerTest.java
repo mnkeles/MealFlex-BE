@@ -34,6 +34,12 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class SubscriptionSchedulerTest {
 
+    @Test void dailyLifecycleAlwaysUsesTurkeyTimeZone() throws Exception {
+        var annotation = SubscriptionScheduler.class.getDeclaredMethod("processSubscriptions")
+                .getAnnotation(org.springframework.scheduling.annotation.Scheduled.class);
+        assertThat(annotation.zone()).isEqualTo("Europe/Istanbul");
+    }
+
     @Mock private SubscriptionRepository subscriptionRepository;
     @Mock private NotificationRepository notificationRepository;
     @Mock private SubscriptionDeliveryRepository deliveryRepository;

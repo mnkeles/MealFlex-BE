@@ -20,6 +20,7 @@ public class SellerPayoutService {
     private final SellerPayoutRepository payoutRepository; private final SellerPayoutItemRepository itemRepository;
     private final SubscriptionDeliveryRepository deliveryRepository;
     private final PaymentAllocationRepository allocationRepository;
+    private final PayoutRefundAdjustmentService payoutRefundAdjustmentService;
 
     /** Eski toplu haftalık ödeme planı, teslimat sonrası aktarım kuralıyla devre dışıdır. */
     @Transactional
@@ -37,6 +38,10 @@ public class SellerPayoutService {
             SellerPayout payout = payoutRepository.save(SellerPayout.builder().store(store).status("SCHEDULED").periodStart(start).periodEnd(end)
                     .currency("TRY").grossAmount(gross).commissionAmount(commission).refundAmount(refunds).netAmount(net)
                     .scheduledAt(Instant.now().plus(2, java.time.temporal.ChronoUnit.DAYS)).build());
+            BigDecimal adjustment = java.util.Optional.ofNullable(
+                    payoutRefundAdjustmentService.applyPendingAdjustments(payout, net)).orElse(BigDecimal.ZERO);
+            payout.setAdjustmentAmount(adjustment);
+            payout.setNetAmount(net.subtract(adjustment));
             itemRepository.saveAll(payments.stream().map(payment -> SellerPayoutItem.builder().payout(payout).payment(payment)
                     .itemType(payment.getRefundedAmount().signum() > 0 ? "SALE_WITH_REFUND" : "SALE")
                     .grossAmount(payment.getGrossAmount()).commissionAmount(payment.getCommissionAmount().add(payment.getCommissionTaxAmount()))
@@ -68,6 +73,7 @@ public class SellerPayoutService {
         if (weekly.isEmpty() || weekly.stream().anyMatch(item -> item.getStatus() != DeliveryStatus.DELIVERED)) return;
         // A previous day's delivery may be confirmed after the calendar's last delivery.
         if (weekly.stream().anyMatch(item -> item.getDeliveredAt() == null)) return;
+        storeRepository.findByIdForUpdate(delivery.getSubscription().getStore().getId());
         Instant scheduledAt = weekly.stream().map(SubscriptionDelivery::getDeliveredAt)
                 .max(Instant::compareTo).orElseThrow().plus(Duration.ofHours(1));
         for (Payment candidate : paymentRepository.findBySubscriptionIdOrderByCreatedAtDesc(delivery.getSubscription().getId())) {
@@ -80,12 +86,23 @@ public class SellerPayoutService {
                 a.getDelivery().getDeliveryDate().isBefore(start) || a.getDelivery().getDeliveryDate().isAfter(end)
                 || (a.getDelivery().getStatus() != DeliveryStatus.DELIVERED
                     && a.getReturnedAmount().compareTo(a.getAmount()) < 0))) continue;
-        SellerPayout payout = payoutRepository.save(SellerPayout.builder().store(delivery.getSubscription().getStore()).status("SCHEDULED")
-                .periodStart(start).periodEnd(end).currency(payment.getCurrency()).grossAmount(payment.getGrossAmount())
-                .commissionAmount(payment.getCommissionAmount().add(payment.getCommissionTaxAmount())).refundAmount(payment.getRefundedAmount())
-                .netAmount(payment.getNetAmount()).scheduledAt(scheduledAt).build());
+        BigDecimal paymentCommission = payment.getCommissionAmount().add(payment.getCommissionTaxAmount());
+        SellerPayout payout = payoutRepository.findPeriodForUpdate(delivery.getSubscription().getStore().getId(), start, end)
+                .orElseGet(() -> payoutRepository.save(SellerPayout.builder().store(delivery.getSubscription().getStore()).status("SCHEDULED")
+                        .periodStart(start).periodEnd(end).currency(payment.getCurrency()).grossAmount(BigDecimal.ZERO)
+                        .commissionAmount(BigDecimal.ZERO).refundAmount(BigDecimal.ZERO)
+                        .netAmount(BigDecimal.ZERO).scheduledAt(scheduledAt).build()));
+        if (!"SCHEDULED".equals(payout.getStatus())) continue;
+        payout.setGrossAmount(payout.getGrossAmount().add(payment.getGrossAmount()));
+        payout.setCommissionAmount(payout.getCommissionAmount().add(paymentCommission));
+        payout.setRefundAmount(payout.getRefundAmount().add(payment.getRefundedAmount()));
+        payout.setScheduledAt(payout.getScheduledAt().isAfter(scheduledAt) ? payout.getScheduledAt() : scheduledAt);
+        BigDecimal adjustment = java.util.Optional.ofNullable(
+                payoutRefundAdjustmentService.applyPendingAdjustments(payout, payment.getNetAmount())).orElse(BigDecimal.ZERO);
+        payout.setAdjustmentAmount(payout.getAdjustmentAmount().add(adjustment));
+        payout.setNetAmount(payout.getNetAmount().add(payment.getNetAmount()).subtract(adjustment));
         itemRepository.save(SellerPayoutItem.builder().payout(payout).payment(payment).itemType("WEEKLY_SALE")
-                .grossAmount(payment.getGrossAmount()).commissionAmount(payment.getCommissionAmount().add(payment.getCommissionTaxAmount()))
+                .grossAmount(payment.getGrossAmount()).commissionAmount(paymentCommission)
                 .netAmount(payment.getNetAmount()).currency(payment.getCurrency()).build());
         }
     }

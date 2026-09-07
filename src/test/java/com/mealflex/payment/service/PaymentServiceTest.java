@@ -21,6 +21,7 @@ import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.Instant;
 import java.util.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -38,8 +39,22 @@ class PaymentServiceTest {
     @Mock MealBalanceService mealBalanceService;
     @Mock PaymentAllocationRepository allocationRepository;
     @Mock SellerPayoutItemRepository payoutItemRepository;
+    @Mock PayoutRefundAdjustmentService payoutRefundAdjustmentService;
+    @Mock ProviderOperationService providerOperationService;
     @Mock com.mealflex.subscription.repository.DeliveryModificationHistoryRepository modificationRepository;
     @InjectMocks PaymentService service;
+
+    @BeforeEach
+    void providerOperationPassThrough() {
+        lenient().when(providerOperationService.charge(any(), any(), anyString(), any(), anyString(), anyString()))
+                .thenAnswer(invocation -> new ProviderOperationService.ChargeExecution(501L,
+                        provider.charge(invocation.getArgument(2), invocation.getArgument(3),
+                                invocation.getArgument(4), invocation.getArgument(5))));
+        lenient().when(providerOperationService.refund(any(), any(), anyString(), any(), anyString(), anyString()))
+                .thenAnswer(invocation -> new ProviderOperationService.RefundExecution(502L,
+                        provider.refund(invocation.getArgument(2), invocation.getArgument(3),
+                                invocation.getArgument(4), invocation.getArgument(5))));
+    }
 
     @Test
     void weeklyChargeDoesNotChargeAlreadyPaidExtraPortionsAgain() {
@@ -149,6 +164,61 @@ class PaymentServiceTest {
     }
 
     @Test
+    void failedAllocatedRefundIsRetriedWithSameKeyAndAppliedExactlyOnce() {
+        Payment payment = paymentFixture(PaymentStatus.SUCCEEDED);
+        PaymentAllocation allocation = allocation(payment, 7L, "100.00");
+        when(allocationRepository.findByDeliveryIdOrderByIdDesc(7L)).thenReturn(List.of(allocation));
+        Map<String, Refund> refunds = new HashMap<>();
+        when(refundRepository.findByIdempotencyKey(anyString())).thenAnswer(i -> Optional.ofNullable(refunds.get(i.getArgument(0))));
+        when(refundRepository.findByIdForUpdate(21L)).thenAnswer(i -> refunds.values().stream().findFirst());
+        when(refundRepository.save(any())).thenAnswer(i -> {
+            Refund refund = i.getArgument(0); refund.setId(21L); refunds.put(refund.getIdempotencyKey(), refund); return refund;
+        });
+        when(provider.refund(anyString(), any(), anyString(), anyString()))
+                .thenReturn(new PaymentProvider.RefundResult(false, null, "TIMEOUT", "Geçici hata"))
+                .thenReturn(new PaymentProvider.RefundResult(true, "refund-1", "00", null));
+
+        Refund failed = service.refundForDeliveryChange(payment.getSubscription(), 7L,
+                new BigDecimal("100.00"), 1L, "skip");
+        assertThat(failed.getStatus()).isEqualTo(RefundStatus.FAILED);
+        assertThat(failed.getAttemptCount()).isEqualTo(1);
+        assertThat(failed.getNextRetryAt()).isNotNull();
+        assertThat(allocation.getReturnedAmount()).isEqualByComparingTo("0.00");
+        failed.setNextRetryAt(Instant.now().minusSeconds(1));
+
+        Refund succeeded = service.retryRefund(21L);
+        assertThat(succeeded.getStatus()).isEqualTo(RefundStatus.SUCCEEDED);
+        assertThat(succeeded.getAttemptCount()).isEqualTo(2);
+        assertThat(succeeded.getNextRetryAt()).isNull();
+        assertThat(payment.getRefundedAmount()).isEqualByComparingTo("100.00");
+        assertThat(allocation.getReturnedAmount()).isEqualByComparingTo("100.00");
+        service.retryRefund(21L);
+        verify(provider, times(2)).refund(eq("provider-1"), eq(new BigDecimal("100.00")), eq("TRY"),
+                eq("delivery-change-7-7"));
+        verify(mealBalanceService, never()).credit(any(), any(), any(), any(), any(), anyString(), anyString());
+    }
+
+    @Test
+    void thirdFailedRefundAttemptStopsAutomaticRetry() {
+        Payment payment = paymentFixture(PaymentStatus.SUCCEEDED);
+        Refund refund = Refund.builder().payment(payment).subscription(payment.getSubscription())
+                .status(RefundStatus.FAILED).idempotencyKey("delivery-change-7-7").currency("TRY")
+                .amount(new BigDecimal("50.00")).attemptCount(2).nextRetryAt(Instant.now().minusSeconds(1)).build();
+        refund.setId(21L);
+        when(refundRepository.findByIdForUpdate(21L)).thenReturn(Optional.of(refund));
+        when(refundRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(provider.refund(anyString(), any(), anyString(), anyString()))
+                .thenReturn(new PaymentProvider.RefundResult(false, null, "DECLINED", "Kalıcı hata"));
+
+        Refund result = service.retryRefund(21L);
+
+        assertThat(result.getStatus()).isEqualTo(RefundStatus.FAILED);
+        assertThat(result.getAttemptCount()).isEqualTo(3);
+        assertThat(result.getNextRetryAt()).isNull();
+        assertThat(payment.getRefundedAmount()).isEqualByComparingTo("0.00");
+    }
+
+    @Test
     void cancellationRefundsEachCancelledDeliveryAcrossWeeksButNotDeliveredMeals() {
         Payment first = paymentFixture(PaymentStatus.SUCCEEDED);
         Payment second = paymentFixture(PaymentStatus.SUCCEEDED); second.setId(11L);
@@ -236,10 +306,11 @@ class PaymentServiceTest {
     void repeatedWebhookEventIsProcessedOnce() {
         when(provider.verifyWebhook("{}", "signature")).thenReturn(true);
         when(provider.name()).thenReturn("MOCK");
-        when(webhookRepository.existsByProviderAndProviderEventId("MOCK", "event-1")).thenReturn(false, true);
+        when(webhookRepository.insertIfAbsent(eq("MOCK"), eq("event-1"), eq("payment.succeeded"), anyString()))
+                .thenReturn(1, 0);
         assertThat(service.acceptWebhook("event-1", "payment.succeeded", "{}", "signature")).isTrue();
         assertThat(service.acceptWebhook("event-1", "payment.succeeded", "{}", "signature")).isFalse();
-        verify(webhookRepository, times(1)).save(any(PaymentWebhookEvent.class));
+        verify(webhookRepository, times(2)).insertIfAbsent(eq("MOCK"), eq("event-1"), eq("payment.succeeded"), anyString());
     }
 
     @Test
@@ -315,9 +386,11 @@ class PaymentServiceTest {
     @Test
     void partialRefundRecalculatesCommissionTaxAndNetAndIsIdempotent() {
         Payment payment = paymentFixture(PaymentStatus.SUCCEEDED);
+        PaymentAllocation allocation = allocation(payment, 7L, "100.00");
+        when(allocationRepository.findByPaymentIdOrderByDeliveryDeliveryDateAscIdAsc(10L)).thenReturn(List.of(allocation));
         Refund existing = Refund.builder().payment(payment).subscription(payment.getSubscription()).amount(new BigDecimal("25.00"))
-                .currency("TRY").status(RefundStatus.SUCCEEDED).idempotencyKey("admin-refund-10-25.00").build();
-        when(refundRepository.findByIdempotencyKey(anyString())).thenReturn(Optional.empty(), Optional.of(existing));
+                .currency("TRY").status(RefundStatus.SUCCEEDED).idempotencyKey("admin-refund-10-25.00-7").build();
+        when(refundRepository.findByIdempotencyKey(anyString())).thenReturn(Optional.empty(), Optional.empty(), Optional.of(existing));
         when(refundRepository.save(any(Refund.class))).thenAnswer(invocation -> {
             Refund refund = invocation.getArgument(0);
             if (refund.getId() == null) refund.setId(20L);

@@ -76,7 +76,7 @@ public class SubscriptionLifecycleService {
         subscription.setRejectedAt(Instant.now());
         subscription.setCancellationReason(reason);
         subscription = subscriptionRepository.save(subscription);
-        deliveryPlanningService.cancelOutstandingDeliveries(subscription.getId(), LocalDate.now());
+        deliveryPlanningService.cancelOutstandingDeliveries(subscription.getId(), SubscriptionDatePolicy.today());
         audit(userId, "SUBSCRIPTION_REJECTED", subscription.getId(),
                 previousStatus.name(), SubscriptionStatus.REJECTED.name());
         notifyCustomer(subscription, "Abonelik Talebiniz Reddedildi",
@@ -104,7 +104,7 @@ public class SubscriptionLifecycleService {
         subscription.setCancelledAt(Instant.now());
         subscription.setCancellationReason(reason);
         subscription = subscriptionRepository.save(subscription);
-        deliveryPlanningService.cancelOutstandingDeliveries(subscription.getId(), LocalDate.now());
+        deliveryPlanningService.cancelOutstandingDeliveries(subscription.getId(), SubscriptionDatePolicy.today());
         paymentService.refundForCancellation(subscription, userId, reason);
         payoutService.recheckAfterCancellation(subscription.getId());
         audit(userId, "SUBSCRIPTION_CANCELLED", subscription.getId(),

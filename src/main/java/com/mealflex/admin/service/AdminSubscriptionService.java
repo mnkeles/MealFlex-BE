@@ -119,7 +119,7 @@ public class AdminSubscriptionService {
         SubscriptionDelivery delivery = deliveryRepository.findById(deliveryId)
                 .filter(value -> value.getSubscription().getId().equals(subscriptionId))
                 .orElseThrow(() -> new ResourceNotFoundException("Teslimat", deliveryId));
-        if (delivery.getDeliveryDate().isBefore(LocalDate.now()) || delivery.getStatus() == DeliveryStatus.DELIVERED
+        if (delivery.getDeliveryDate().isBefore(com.mealflex.subscription.service.SubscriptionDatePolicy.today()) || delivery.getStatus() == DeliveryStatus.DELIVERED
                 || delivery.getStatus() == DeliveryStatus.CANCELLED) {
             throw new BusinessException("INVALID_DELIVERY_STATUS", "Tamamlanan, iptal edilen veya geçmiş teslimat düzeltilemez.");
         }
@@ -142,7 +142,7 @@ public class AdminSubscriptionService {
 
     private void cancelFutureDeliveries(Subscription subscription) {
         List<SubscriptionDelivery> deliveries = deliveryRepository.findBySubscriptionId(subscription.getId()).stream()
-                .filter(delivery -> !delivery.getDeliveryDate().isBefore(LocalDate.now()))
+                .filter(delivery -> !delivery.getDeliveryDate().isBefore(com.mealflex.subscription.service.SubscriptionDatePolicy.today()))
                 .filter(delivery -> delivery.getStatus() != DeliveryStatus.DELIVERED && delivery.getStatus() != DeliveryStatus.CANCELLED)
                 .peek(delivery -> {
                     delivery.setStatus(DeliveryStatus.CANCELLED);
@@ -168,7 +168,7 @@ public class AdminSubscriptionService {
     private AdminSubscriptionResponse toResponse(Subscription subscription) {
         LocalDate nextDelivery = deliveryRepository
                 .findFirstBySubscriptionIdAndDeliveryDateGreaterThanEqualAndStatusNotOrderByDeliveryDateAsc(
-                        subscription.getId(), LocalDate.now(), DeliveryStatus.CANCELLED)
+                        subscription.getId(), com.mealflex.subscription.service.SubscriptionDatePolicy.today(), DeliveryStatus.CANCELLED)
                 .map(SubscriptionDelivery::getDeliveryDate).orElse(null);
         return AdminSubscriptionResponse.builder()
                 .id(subscription.getId()).customerId(subscription.getCustomer().getId())

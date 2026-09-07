@@ -31,7 +31,8 @@ import static org.mockito.Mockito.*;
 
 @DataJpaTest(showSql=false, properties={"spring.jpa.hibernate.ddl-auto=validate", "spring.jpa.show-sql=false", "logging.level.org.hibernate.SQL=WARN"})
 @AutoConfigureTestDatabase(replace=AutoConfigureTestDatabase.Replace.NONE)
-@Import({PaymentService.class, MealBalanceService.class, SellerPayoutService.class})
+@Import({PaymentService.class, MealBalanceService.class, SellerPayoutService.class,
+        ProviderOperationService.class, PayoutRefundAdjustmentService.class})
 @Transactional(propagation=Propagation.NOT_SUPPORTED)
 @EnabledIfEnvironmentVariable(named="MEALFLEX_QA_DB_URL", matches="jdbc:postgresql://localhost:5432/mealflex_qa_[0-9_]+")
 class PostgresFinanceTest {
@@ -49,6 +50,26 @@ class PostgresFinanceTest {
 
     @Autowired javax.sql.DataSource dataSource;
 
+    @Test void concurrentWebhookInsertIsAtomic() throws Exception {
+        String eventId = "qa-event-" + java.util.UUID.randomUUID();
+        TransactionTemplate tx = new TransactionTemplate(transactions);
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2), start = new CountDownLatch(1);
+        try {
+            Callable<Boolean> insert = () -> {
+                ready.countDown(); start.await(10, TimeUnit.SECONDS);
+                return tx.execute(status -> payments.acceptVerifiedWebhook("MOCK", eventId, "payment.succeeded", "{}"));
+            };
+            Future<Boolean> first = workers.submit(insert), second = workers.submit(insert);
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue(); start.countDown();
+            assertThat(java.util.Set.of(first.get(30, TimeUnit.SECONDS), second.get(30, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(true, false);
+        } finally { workers.shutdownNow(); }
+        tx.executeWithoutResult(status -> assertThat(em.createQuery(
+                "select count(e) from PaymentWebhookEvent e where e.providerEventId=:event", Long.class)
+                .setParameter("event", eventId).getSingleResult()).isEqualTo(1L));
+    }
+
     @Test void upgradeInvalidatesAutomaticMatchesButPreservesReviewedRecords() {
         String schema = "qa_upgrade_" + java.util.UUID.randomUUID().toString().replace("-", "");
         org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
@@ -62,7 +83,7 @@ class PostgresFinanceTest {
                 + "VALUES ('2026-09-02',90,100,-10,'RESOLVED','Reviewed evidence','2026-09-03T12:00:00Z')");
 
         var upgrade = org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema).load();
-        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(4);
         var automatic = jdbc.queryForMap("SELECT * FROM " + schema + ".finance_reconciliations WHERE reconciliation_date='2026-09-01'");
         assertThat(automatic.get("status")).isEqualTo("PROVIDER_UNAVAILABLE");
         assertThat(automatic.get("provider_collected_amount")).isNull();
@@ -115,12 +136,29 @@ class PostgresFinanceTest {
         });
         when(provider.refund(anyString(),any(),anyString(),anyString()))
                 .thenReturn(new PaymentProvider.RefundResult(true,"qa-refund","00",null));
+        Long firstDeliveryId = tx.execute(status -> em.createQuery(
+                "select d.id from SubscriptionDelivery d where d.subscription.id=:id order by d.deliveryDate", Long.class)
+                .setParameter("id", id).setMaxResults(1).getSingleResult());
+        ExecutorService refundWorkers = Executors.newFixedThreadPool(2);
+        CountDownLatch refundReady = new CountDownLatch(2), refundStart = new CountDownLatch(1);
+        try {
+            Callable<BigDecimal> reduce = () -> {
+                refundReady.countDown(); refundStart.await(10, TimeUnit.SECONDS);
+                return tx.execute(status -> payments.creditPaidReduction(em.find(Subscription.class, id), firstDeliveryId,
+                        new BigDecimal("20.00"), 1L, "qa-reduction"));
+            };
+            Future<BigDecimal> first = refundWorkers.submit(reduce), second = refundWorkers.submit(reduce);
+            assertThat(refundReady.await(10, TimeUnit.SECONDS)).isTrue(); refundStart.countDown();
+            assertThat(first.get(40, TimeUnit.SECONDS)).isEqualByComparingTo("20.00");
+            assertThat(second.get(40, TimeUnit.SECONDS)).isEqualByComparingTo("20.00");
+        } finally { refundWorkers.shutdownNow(); }
+        tx.executeWithoutResult(status -> assertThat(em.createQuery(
+                "select count(t) from MealBalanceTransaction t where t.referenceKey like 'refund-balance-qa-reduction-%'", Long.class)
+                .getSingleResult()).isEqualTo(1L));
         tx.executeWithoutResult(status -> {
             Subscription s=em.find(Subscription.class,id);
             var days=em.createQuery("select d from SubscriptionDelivery d where d.subscription.id=:id order by d.deliveryDate",SubscriptionDelivery.class)
                     .setParameter("id",id).getResultList();
-            assertThat(payments.creditPaidReduction(s,days.get(0).getId(),new BigDecimal("20.00"),s.getCustomer().getId(),"qa-reduction"))
-                    .isEqualByComparingTo("20.00");
             payments.refundForDeliveryChange(s,days.get(4).getId(),new BigDecimal("100.00"),s.getCustomer().getId(),"QA skip");
             days.get(4).setStatus(com.mealflex.delivery.entity.DeliveryStatus.SKIPPED);
             for (int i=0;i<4;i++) { days.get(i).setStatus(com.mealflex.delivery.entity.DeliveryStatus.DELIVERED); days.get(i).setDeliveredAt(Instant.now()); }

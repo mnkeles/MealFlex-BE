@@ -58,7 +58,7 @@ public class DeliveryService {
     public List<DeliveryResponse> getTodaysDeliveries(Long userId) {
         List<Store> stores = storeRepository.findAllBySellerUserIdAndDeletedAtIsNull(userId);
         return stores.stream()
-                .flatMap(store -> deliveryRepository.findByStoreIdAndDate(store.getId(), LocalDate.now()).stream())
+                .flatMap(store -> deliveryRepository.findByStoreIdAndDate(store.getId(), com.mealflex.subscription.service.SubscriptionDatePolicy.today()).stream())
                 .filter(delivery -> delivery.getStatus() != DeliveryStatus.CANCELLED)
                 .map(this::toResponse)
                 .toList();
@@ -82,13 +82,13 @@ public class DeliveryService {
     }
 
     public List<DeliveryResponse> getStoreTodaysDeliveries(Long userId, Long storeId) {
-        return getStoreDeliveriesByDate(userId, storeId, LocalDate.now());
+        return getStoreDeliveriesByDate(userId, storeId, com.mealflex.subscription.service.SubscriptionDatePolicy.today());
     }
 
     @Transactional(readOnly = true)
     public List<DeliveryResponse> getCourierTodaysDeliveries(Long userId) {
         return courierForUser(userId).stream().flatMap(courier -> deliveryRepository
-                .findByCourierIdAndDeliveryDateAndStatusNotOrderByRouteSequenceAscDeliveryTimeAsc(courier.getId(), LocalDate.now(), DeliveryStatus.CANCELLED)
+                .findByCourierIdAndDeliveryDateAndStatusNotOrderByRouteSequenceAscDeliveryTimeAsc(courier.getId(), com.mealflex.subscription.service.SubscriptionDatePolicy.today(), DeliveryStatus.CANCELLED)
                 .stream()).map(this::toCourierResponse).toList();
     }
 

@@ -19,6 +19,7 @@ public class SellerPayout extends BaseEntity {
     @Column(nullable = false, precision = 12, scale = 2) private BigDecimal grossAmount;
     @Column(nullable = false, precision = 12, scale = 2) private BigDecimal commissionAmount;
     @Column(nullable = false, precision = 12, scale = 2) private BigDecimal refundAmount;
+    @Column(nullable = false, precision = 12, scale = 2) @Builder.Default private BigDecimal adjustmentAmount = BigDecimal.ZERO;
     @Column(nullable = false, precision = 12, scale = 2) private BigDecimal netAmount;
     private String providerPayoutId;
     private Instant scheduledAt;

@@ -8,8 +8,14 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDate;
 import java.util.List;
 import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class WeeklyPaymentSchedulerTest {
+    @Test void schedulerAlwaysUsesTurkeyTimeZone() throws Exception {
+        var annotation = WeeklyPaymentScheduler.class.getDeclaredMethod("chargeWeeksStartingToday")
+                .getAnnotation(org.springframework.scheduling.annotation.Scheduled.class);
+        assertThat(annotation.zone()).isEqualTo("Europe/Istanbul");
+    }
     @Test void skippedFirstDayMovesChargeToFirstActualServiceDay() {
         var repository = mock(SubscriptionDeliveryRepository.class);
         var payments = mock(PaymentService.class);

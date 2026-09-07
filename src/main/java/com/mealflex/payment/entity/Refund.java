@@ -12,6 +12,7 @@ import java.time.Instant;
 public class Refund extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "payment_id", nullable = false) private Payment payment;
     @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "subscription_id", nullable = false) private Subscription subscription;
+    @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "payment_allocation_id") private PaymentAllocation paymentAllocation;
     @Enumerated(EnumType.STRING) @Column(nullable = false) private RefundStatus status;
     private String providerRefundId;
     @Column(nullable = false, unique = true, length = 100) private String idempotencyKey;
@@ -20,4 +21,7 @@ public class Refund extends BaseEntity {
     @Column(length = 500) private String reason;
     @Column(length = 500) private String failureMessage;
     private Instant refundedAt;
+    @Column(nullable = false) @Builder.Default private Integer attemptCount = 0;
+    private Instant lastAttemptAt;
+    private Instant nextRetryAt;
 }

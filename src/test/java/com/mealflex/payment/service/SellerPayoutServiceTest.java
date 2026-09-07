@@ -12,6 +12,7 @@ import com.mealflex.store.entity.Store;
 import com.mealflex.store.repository.StoreRepository;
 import com.mealflex.subscription.entity.Subscription;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -35,7 +36,13 @@ class SellerPayoutServiceTest {
     @Mock private SellerPayoutItemRepository itemRepository;
     @Mock private SubscriptionDeliveryRepository deliveryRepository;
     @Mock private com.mealflex.payment.repository.PaymentAllocationRepository allocationRepository;
+    @Mock private PayoutRefundAdjustmentService payoutRefundAdjustmentService;
     @InjectMocks private SellerPayoutService service;
+
+    @BeforeEach void payoutPeriod() {
+        lenient().when(payoutRepository.findPeriodForUpdate(nullable(Long.class), any(), any()))
+                .thenReturn(Optional.empty());
+    }
 
     @Test
     void lateConfirmationOfEarlierDeliverySchedulesAdjustedPayoutOnlyOnce() {
