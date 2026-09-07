@@ -10,7 +10,7 @@ public final class SubscriptionDatePolicy {
     public static final ZoneId ZONE = ZoneId.of("Europe/Istanbul");
     private SubscriptionDatePolicy() {}
     public static LocalDate today() { return today(Clock.systemUTC()); }
-    static LocalDate today(Clock clock) { return LocalDate.now(clock.withZone(ZONE)); }
+    public static LocalDate today(Clock clock) { return LocalDate.now(clock.withZone(ZONE)); }
     public static void validateRange(LocalDate start, LocalDate end) {
         if (start == null || end == null || end.isBefore(start)) {
             throw new BusinessException("INVALID_DATE_RANGE", "Bitiş tarihi başlangıç tarihinden önce olamaz.");

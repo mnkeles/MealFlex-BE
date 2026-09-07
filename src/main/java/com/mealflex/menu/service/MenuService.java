@@ -84,7 +84,7 @@ public class MenuService {
                 .name(request.getName())
                 .description(request.getDescription())
                 .pricePerPerson(request.getPricePerPerson())
-                .priceEffectiveFrom(request.getPriceEffectiveFrom() == null ? com.mealflex.subscription.service.SubscriptionDatePolicy.today() : request.getPriceEffectiveFrom())
+                .priceEffectiveFrom(com.mealflex.subscription.service.CommerceDateRules.menuEffectiveDate(request.getPriceEffectiveFrom(), com.mealflex.subscription.service.SubscriptionDatePolicy.today()))
                 .allergenInfo(request.getAllergenInfo())
                 .imageUrl(request.getImageUrl())
                 .dietTags(validated(request.getDietTags(), com.mealflex.store.service.StoreService.DIET_TAGS, "Diyet etiketi"))
@@ -128,7 +128,7 @@ public class MenuService {
                 .name(request.getName())
                 .description(request.getDescription())
                 .pricePerPerson(request.getPricePerPerson())
-                .priceEffectiveFrom(request.getPriceEffectiveFrom() == null ? com.mealflex.subscription.service.SubscriptionDatePolicy.today() : request.getPriceEffectiveFrom())
+                .priceEffectiveFrom(com.mealflex.subscription.service.CommerceDateRules.menuEffectiveDate(request.getPriceEffectiveFrom(), com.mealflex.subscription.service.SubscriptionDatePolicy.today()))
                 .allergenInfo(request.getAllergenInfo())
                 .imageUrl(request.getImageUrl())
                 .dietTags(validated(request.getDietTags(), com.mealflex.store.service.StoreService.DIET_TAGS, "Diyet etiketi"))
@@ -160,7 +160,7 @@ public class MenuService {
         menu.setName(request.getName());
         menu.setDescription(request.getDescription());
         menu.setPricePerPerson(request.getPricePerPerson());
-        menu.setPriceEffectiveFrom(request.getPriceEffectiveFrom() == null ? com.mealflex.subscription.service.SubscriptionDatePolicy.today() : request.getPriceEffectiveFrom());
+        menu.setPriceEffectiveFrom(com.mealflex.subscription.service.CommerceDateRules.menuEffectiveDate(request.getPriceEffectiveFrom(), com.mealflex.subscription.service.SubscriptionDatePolicy.today()));
         menu.setAllergenInfo(request.getAllergenInfo());
         if (request.getImageUrl() != null) menu.setImageUrl(request.getImageUrl());
         if (request.getDietTags() != null) menu.setDietTags(validated(request.getDietTags(), com.mealflex.store.service.StoreService.DIET_TAGS, "Diyet etiketi"));
