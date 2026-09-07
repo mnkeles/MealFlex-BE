@@ -11,7 +11,7 @@ import com.mealflex.complaint.repository.ComplaintRepository;
 import com.mealflex.delivery.entity.*;
 import com.mealflex.delivery.repository.SubscriptionDeliveryRepository;
 import com.mealflex.notification.entity.Notification;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.payment.entity.Payment;
 import com.mealflex.payment.repository.PaymentRepository;
 import com.mealflex.payment.service.PaymentService;
@@ -26,7 +26,7 @@ import java.util.*;
 public class AdminComplaintService {
     private final ComplaintRepository complaints; private final PaymentRepository payments; private final PaymentService paymentService;
     private final CampaignRepository campaigns; private final SubscriptionDeliveryRepository deliveries;
-    private final AuditLogRepository audits; private final NotificationRepository notifications;
+    private final AuditLogRepository audits; private final NotificationEventService notifications;
 
     @Transactional
     public Complaint resolve(Long adminId, Long complaintId, ResolveComplaintRequest request) {
@@ -61,9 +61,9 @@ public class AdminComplaintService {
         audits.save(AuditLog.builder().actorId(adminId).action("ADMIN_COMPLAINT_RESOLVED").entityType("COMPLAINT").entityId(complaintId)
                 .newValue("type="+type+",amount="+amount+",reason="+request.getReason().trim()).timestamp(Instant.now()).build());
         String extra=code==null?"":" Telafi kuponunuz: "+code;
-        notifications.save(Notification.builder().user(complaint.getCustomer()).title("Şikâyetiniz sonuçlandırıldı").message(request.getCustomerMessage().trim()+extra)
+        notifications.publish(Notification.builder().user(complaint.getCustomer()).title("Şikâyetiniz sonuçlandırıldı").message(request.getCustomerMessage().trim()+extra)
                 .referenceType("COMPLAINT").referenceId(complaintId).build());
-        notifications.save(Notification.builder().user(complaint.getStore().getSeller().getUser()).title("Şikâyet karara bağlandı").message("Şikâyet #"+complaintId+" admin tarafından sonuçlandırıldı.")
+        notifications.publish(Notification.builder().user(complaint.getStore().getSeller().getUser()).title("Şikâyet karara bağlandı").message("Şikâyet #"+complaintId+" admin tarafından sonuçlandırıldı.")
                 .referenceType("COMPLAINT").referenceId(complaintId).build());
         return complaint;
     }

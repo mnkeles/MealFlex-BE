@@ -9,7 +9,7 @@ import com.mealflex.address.repository.AddressRepository;
 import com.mealflex.menu.repository.MenuRepository;
 import com.mealflex.user.repository.UserRepository;
 import com.mealflex.notification.entity.Notification;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.seller.service.SellerDocumentService;
 import com.mealflex.subscription.service.SubscriptionServiceDayChangeService;
 import com.mealflex.store.dto.*;
@@ -56,7 +56,7 @@ public class StoreService {
     private final StoreViewRepository storeViewRepository;
     private final UserRepository userRepository;
     private final FavoriteRepository favoriteRepository;
-    private final NotificationRepository notificationRepository;
+    private final NotificationEventService notificationEventService;
     private final SellerDocumentService sellerDocumentService;
     private final SubscriptionServiceDayChangeService subscriptionServiceDayChangeService;
 
@@ -335,7 +335,7 @@ public class StoreService {
         store = storeRepository.save(store);
         if (reopening) {
             Store reopenedStore = store;
-            favoriteRepository.findByStoreId(storeId).forEach(favorite -> notificationRepository.save(Notification.builder()
+            favoriteRepository.findByStoreId(storeId).forEach(favorite -> notificationEventService.publish(Notification.builder()
                     .user(favorite.getUser())
                     .title("Favori işletmeniz yeniden açık")
                     .message(reopenedStore.getName() + " yeniden abonelik talebi almaya başladı.")

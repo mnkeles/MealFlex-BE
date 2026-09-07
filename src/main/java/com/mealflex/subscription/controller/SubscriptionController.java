@@ -11,6 +11,7 @@ import com.mealflex.subscription.dto.FreezeSubscriptionRequest;
 import com.mealflex.subscription.dto.ModifyDeliveryRequest;
 import com.mealflex.subscription.dto.DeliveryModificationResponse;
 import com.mealflex.subscription.dto.DeliveryModificationRequestResponse;
+import com.mealflex.subscription.dto.ChangeSubscriptionPaymentMethodRequest;
 import com.mealflex.subscription.entity.SubscriptionStatus;
 import com.mealflex.subscription.service.SubscriptionService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -35,6 +36,7 @@ public class SubscriptionController {
     private final SubscriptionService subscriptionService;
     private final com.mealflex.subscription.service.SubscriptionChangeService subscriptionChangeService;
     private final com.mealflex.subscription.service.DeliveryModificationService deliveryModificationService;
+    private final com.mealflex.payment.service.PaymentService paymentService;
 
     @PostMapping
     @Operation(summary = "Abonelik talebi oluştur")
@@ -72,6 +74,15 @@ public class SubscriptionController {
             @AuthenticationPrincipal UserPrincipal principal,
             @PathVariable Long id) {
         return ResponseEntity.ok(subscriptionService.getCustomerSubscriptionDetail(principal.getId(), id));
+    }
+
+    @PatchMapping("/{id}/payment-method")
+    @Operation(summary = "Aktif aboneliğin ödeme yöntemini değiştir")
+    public ResponseEntity<com.mealflex.payment.dto.PaymentMethodResponse> changePaymentMethod(
+            @AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
+            @Valid @RequestBody ChangeSubscriptionPaymentMethodRequest request) {
+        return ResponseEntity.ok(paymentService.changeSubscriptionPaymentMethod(
+                principal.getId(), id, request.paymentMethodId()));
     }
 
     @GetMapping("/{id}/events")

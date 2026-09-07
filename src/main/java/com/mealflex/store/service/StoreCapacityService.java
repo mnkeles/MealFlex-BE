@@ -28,7 +28,7 @@ public class StoreCapacityService {
             DeliveryStatus.SCHEDULED, DeliveryStatus.PREPARING, DeliveryStatus.IN_TRANSIT,
             DeliveryStatus.DELIVERY_ATTEMPTED, DeliveryStatus.DELIVERED);
     private static final List<SubscriptionStatus> OCCUPYING_SUBSCRIPTION_STATUSES = List.of(
-            SubscriptionStatus.APPROVED, SubscriptionStatus.ACTIVE, SubscriptionStatus.POSTPONED);
+            SubscriptionStatus.APPROVED, SubscriptionStatus.ACTIVE, SubscriptionStatus.PAYMENT_SUSPENDED, SubscriptionStatus.POSTPONED);
 
     private final SubscriptionDeliveryRepository deliveryRepository;
     private final StoreRepository storeRepository;

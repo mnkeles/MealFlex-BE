@@ -4,7 +4,7 @@ import com.mealflex.delivery.entity.DeliveryStatus;
 import com.mealflex.delivery.entity.SubscriptionDelivery;
 import com.mealflex.delivery.repository.SubscriptionDeliveryRepository;
 import com.mealflex.notification.entity.Notification;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.store.entity.Store;
 import com.mealflex.subscription.entity.Subscription;
 import com.mealflex.subscription.entity.SubscriptionStatus;
@@ -30,7 +30,7 @@ class SubscriptionServiceDayChangeServiceTest {
 
     @Mock private SubscriptionRepository subscriptionRepository;
     @Mock private SubscriptionDeliveryRepository deliveryRepository;
-    @Mock private NotificationRepository notificationRepository;
+    @Mock private NotificationEventService notificationEventService;
     @InjectMocks private SubscriptionServiceDayChangeService service;
 
     @Test
@@ -67,7 +67,7 @@ class SubscriptionServiceDayChangeServiceTest {
         verify(deliveryRepository).saveAll(List.of(affectedWednesday));
 
         ArgumentCaptor<Notification> notification = ArgumentCaptor.forClass(Notification.class);
-        verify(notificationRepository).save(notification.capture());
+        verify(notificationEventService).publish(notification.capture());
         assertThat(notification.getValue().getUser()).isSameAs(customer);
         assertThat(notification.getValue().getMessage()).contains("14 Eylül 2026", "Çarşamba");
     }
@@ -88,7 +88,7 @@ class SubscriptionServiceDayChangeServiceTest {
 
         assertThat(affectedSubscriptions).isZero();
         verify(deliveryRepository, never()).saveAll(anyList());
-        verifyNoInteractions(notificationRepository);
+        verifyNoInteractions(notificationEventService);
     }
 
     private SubscriptionDelivery delivery(Subscription subscription, LocalDate date) {

@@ -9,7 +9,8 @@ import com.mealflex.delivery.entity.Courier;
 import com.mealflex.common.entity.BaseEntity;
 import com.mealflex.delivery.repository.SubscriptionDeliveryRepository;
 import com.mealflex.delivery.repository.CourierRepository;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
+import com.mealflex.payment.repository.PaymentRepository;
 import com.mealflex.payment.service.SellerPayoutService;
 import com.mealflex.review.repository.ReviewRepository;
 import com.mealflex.store.entity.Store;
@@ -43,7 +44,8 @@ class DeliveryServiceTest {
 
     @Mock private SubscriptionDeliveryRepository deliveryRepository;
     @Mock private StoreRepository storeRepository;
-    @Mock private NotificationRepository notificationRepository;
+    @Mock private NotificationEventService notificationEventService;
+    @Mock private PaymentRepository paymentRepository;
     @Mock private ReviewRepository reviewRepository;
     @Mock private SellerStoreAccessService storeAccessService;
     @Mock private StoreClosedDateRepository closedDateRepository;
@@ -189,6 +191,20 @@ class DeliveryServiceTest {
 
         verify(delivery).setStatus(DeliveryStatus.PREPARING);
         verify(delivery).setPreparationStartedAt(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void deliveryCannotProgressWhileSubscriptionPaymentIsSuspended() {
+        SubscriptionDelivery delivery = ownedDelivery(DeliveryStatus.SCHEDULED);
+        when(delivery.getSubscription().getStatus())
+                .thenReturn(com.mealflex.subscription.entity.SubscriptionStatus.PAYMENT_SUSPENDED);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> deliveryService.updateStatus(99L, 5L, 20L,
+                        request(DeliveryStatus.PREPARING, null, null, null)));
+
+        assertThat(error.getCode()).isEqualTo("WEEKLY_PAYMENT_REQUIRED");
+        verify(deliveryRepository, never()).save(delivery);
     }
 
     @Test

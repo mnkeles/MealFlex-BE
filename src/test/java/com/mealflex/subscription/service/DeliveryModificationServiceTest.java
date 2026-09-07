@@ -7,7 +7,7 @@ import com.mealflex.delivery.entity.*;
 import com.mealflex.delivery.repository.SubscriptionDeliveryRepository;
 import com.mealflex.menu.entity.Menu;
 import com.mealflex.menu.repository.MenuRepository;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.payment.service.PaymentService;
 import com.mealflex.payment.service.MealBalanceService;
 import com.mealflex.payment.entity.MealBalanceTransactionType;
@@ -45,7 +45,7 @@ class DeliveryModificationServiceTest {
     @Mock MealBalanceService mealBalanceService;
     @Mock DeliveryModificationHistoryRepository historyRepository;
     @Mock SubscriptionRepository subscriptionRepository;
-    @Mock NotificationRepository notificationRepository;
+    @Mock NotificationEventService notificationEventService;
     @Mock AuditLogRepository auditLogRepository;
     @Mock SellerStoreAccessService storeAccessService;
     @Mock SubscriptionEventStream eventStream;
@@ -75,7 +75,7 @@ class DeliveryModificationServiceTest {
         assertThat(response.oldPersonCount()).isEqualTo(5); assertThat(response.requestedPersonCount()).isEqualTo(7);
         assertThat(response.priceDifference()).isEqualByComparingTo("100.00");
         assertThat(delivery.getPersonCount()).isEqualTo(5);
-        verify(notificationRepository).save(any()); verify(auditLogRepository).save(any());
+        verify(notificationEventService).publish(any(com.mealflex.notification.entity.Notification.class)); verify(auditLogRepository).save(any());
         verify(eventStream).publish(eq(2L),eq("delivery-change-requested"),any());
     }
 
@@ -105,7 +105,7 @@ class DeliveryModificationServiceTest {
         assertThat(response.requestedDeliveryTime()).isEqualTo(LocalTime.of(13,0));
         assertThat(response.priceDifference()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(delivery.getDeliveryTime()).isEqualTo(LocalTime.NOON);
-        verify(notificationRepository).save(any()); verify(auditLogRepository).save(any());
+        verify(notificationEventService).publish(any(com.mealflex.notification.entity.Notification.class)); verify(auditLogRepository).save(any());
         verify(eventStream).publish(eq(2L),eq("delivery-change-requested"),any());
     }
 
@@ -181,7 +181,7 @@ class DeliveryModificationServiceTest {
         assertThat(history.getRequestStatus()).isEqualTo(DeliveryModificationRequestStatus.APPROVED);
         assertThatThrownBy(()->service.approveRequest(9L,8L)).isInstanceOf(BusinessException.class);
         verify(paymentService,times(1)).chargeForDeliveryChange(subscription,7L,new BigDecimal("100.00"),1L,"delivery-change-request-8");
-        verify(notificationRepository).save(argThat(notification->notification.getTitle().equals("Teslimat değişikliği onaylandı")&&notification.getReferenceId().equals(6L)));
+        verify(notificationEventService).publish(argThat(notification->notification.getTitle().equals("Teslimat değişikliği onaylandı")&&notification.getReferenceId().equals(6L)));
     }
 
     @Test void approvedReductionCreditsMealBalanceInsteadOfRefundingCard() {
@@ -245,7 +245,7 @@ class DeliveryModificationServiceTest {
         assertThat(delivery.getPersonCount()).isEqualTo(5);
         assertThat(subscription.getTotalAmount()).isEqualByComparingTo("500.00");
         verifyNoInteractions(paymentService);
-        verify(notificationRepository).save(argThat(notification->notification.getTitle().equals("Teslimat değişikliği reddedildi")&&notification.getReferenceId().equals(6L)));
+        verify(notificationEventService).publish(argThat(notification->notification.getTitle().equals("Teslimat değişikliği reddedildi")&&notification.getReferenceId().equals(6L)));
     }
 
     @Test void sellerDecisionRequiresOwnedStore() {

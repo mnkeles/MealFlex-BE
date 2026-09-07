@@ -20,7 +20,7 @@ import com.mealflex.subscription.dto.SubscriptionPreviewResponse;
 import com.mealflex.subscription.dto.CustomerSubscriptionDetailResponse;
 import com.mealflex.delivery.dto.DeliveryResponse;
 import com.mealflex.notification.entity.Notification;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.review.repository.ReviewRepository;
 import com.mealflex.payment.service.PaymentService;
 import com.mealflex.campaign.service.CampaignService;
@@ -56,7 +56,7 @@ public class SubscriptionService {
     private final StoreRepository storeRepository;
     private final UserRepository userRepository;
     private final SubscriptionDeliveryRepository deliveryRepository;
-    private final NotificationRepository notificationRepository;
+    private final NotificationEventService notificationEventService;
     private final ReviewRepository reviewRepository;
     private final AuditLogRepository auditLogRepository;
     private final SellerStoreAccessService storeAccessService;
@@ -339,7 +339,7 @@ public class SubscriptionService {
     }
 
     private void notify(User user, String title, String message, String referenceType, Long referenceId) {
-        notificationRepository.save(Notification.builder()
+        notificationEventService.publish(Notification.builder()
                 .user(user)
                 .title(title)
                 .message(message)

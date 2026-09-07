@@ -5,7 +5,7 @@ import com.mealflex.audit.repository.AuditLogRepository;
 import com.mealflex.common.exception.BusinessException;
 import com.mealflex.common.exception.ResourceNotFoundException;
 import com.mealflex.notification.entity.Notification;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.payment.service.PaymentService;
 import com.mealflex.payment.service.SellerPayoutService;
 import com.mealflex.store.service.SellerStoreAccessService;
@@ -32,7 +32,7 @@ public class SubscriptionLifecycleService {
     private final SubscriptionDeliveryPlanningService deliveryPlanningService;
     private final PaymentService paymentService;
     private final AuditLogRepository auditLogRepository;
-    private final NotificationRepository notificationRepository;
+    private final NotificationEventService notificationEventService;
     private final SellerStoreAccessService storeAccessService;
     private final SellerPayoutService payoutService;
     private final StoreCapacityService storeCapacityService;
@@ -109,7 +109,7 @@ public class SubscriptionLifecycleService {
         payoutService.recheckAfterCancellation(subscription.getId());
         audit(userId, "SUBSCRIPTION_CANCELLED", subscription.getId(),
                 previousStatus.name(), SubscriptionStatus.CANCELLED.name());
-        notificationRepository.save(Notification.builder()
+        notificationEventService.publish(Notification.builder()
                 .user(subscription.getStore().getSeller().getUser())
                 .title("Abonelik İptal Edildi")
                 .message("Müşteri #" + subscriptionId + " aboneliğini iptal etti.")
@@ -144,7 +144,7 @@ public class SubscriptionLifecycleService {
     }
 
     private void notifyCustomer(Subscription subscription, String title, String message) {
-        notificationRepository.save(Notification.builder()
+        notificationEventService.publish(Notification.builder()
                 .user(subscription.getCustomer())
                 .title(title)
                 .message(message)

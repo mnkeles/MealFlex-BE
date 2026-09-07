@@ -27,7 +27,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.transaction.annotation.Transactional;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.notification.entity.Notification;
 import com.mealflex.complaint.entity.ComplaintStatus;
 import com.mealflex.complaint.service.ComplaintAttachmentService;
@@ -47,7 +47,7 @@ public class ComplaintController {
     private final UserRepository userRepository;
     private final SellerStoreAccessService storeAccessService;
     private final SubscriptionDeliveryRepository deliveryRepository;
-    private final NotificationRepository notificationRepository;
+    private final NotificationEventService notificationEventService;
 
     @GetMapping
     @Operation(summary = "Şikâyetlerimi listele")
@@ -134,7 +134,7 @@ public class ComplaintController {
         }
         if ("true".equals(body.get("escalate"))) complaint.setEscalatedAt(java.time.Instant.now());
         complaint = complaintRepository.save(complaint);
-        notificationRepository.save(Notification.builder().user(complaint.getCustomer()).title("Şikâyetiniz güncellendi")
+        notificationEventService.publish(Notification.builder().user(complaint.getCustomer()).title("Şikâyetiniz güncellendi")
                 .message("Satıcı şikâyetinize yanıt verdi veya durumunu güncelledi.").referenceType("COMPLAINT").referenceId(complaint.getId()).build());
         return ResponseEntity.ok(new SellerComplaintResponse(complaint.getId(), complaint.getCustomer().getFirstName()+" "+complaint.getCustomer().getLastName(), complaint.getReason(), complaint.getDescription(), complaint.getStatus(), complaint.getAdminNote(), complaint.getCreatedAt(), complaint.getSubscription()==null?null:complaint.getSubscription().getId(), complaint.getDelivery()==null?null:complaint.getDelivery().getId(), complaint.getSellerResponse(), complaint.getEscalatedAt(), complaint.getAttachmentUrls()));
     }

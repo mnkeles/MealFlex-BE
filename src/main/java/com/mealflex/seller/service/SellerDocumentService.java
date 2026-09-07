@@ -15,7 +15,7 @@ import com.mealflex.user.repository.UserRepository;
 import com.mealflex.audit.entity.AuditLog;
 import com.mealflex.audit.repository.AuditLogRepository;
 import com.mealflex.notification.entity.Notification;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.seller.dto.AdminSellerDocumentResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -45,7 +45,7 @@ public class SellerDocumentService {
     private final SellerStoreAccessService storeAccessService;
     private final UserRepository userRepository;
     private final AuditLogRepository auditLogRepository;
-    private final NotificationRepository notificationRepository;
+    private final NotificationEventService notificationEventService;
     @Value("${app.upload-dir:uploads}") private String uploadDir;
 
     @Transactional(readOnly = true)
@@ -117,7 +117,7 @@ public class SellerDocumentService {
         auditLogRepository.save(AuditLog.builder().actorId(adminUserId).action(approve ? "ADMIN_DOCUMENT_APPROVED" : "ADMIN_DOCUMENT_REJECTED")
                 .entityType("SELLER_DOCUMENT").entityId(documentId).oldValue(oldStatus)
                 .newValue((approve ? "VERIFIED" : "REJECTED") + ": " + reason.trim()).timestamp(Instant.now()).build());
-        notificationRepository.save(Notification.builder().user(document.getStore().getSeller().getUser())
+        notificationEventService.publish(Notification.builder().user(document.getStore().getSeller().getUser())
                 .title(approve ? "Belgeniz onaylandı" : "Belgeniz reddedildi")
                 .message(approve ? document.getDocumentType() + " belgeniz onaylandı."
                         : document.getDocumentType() + " belgeniz reddedildi. Neden: " + reason.trim())

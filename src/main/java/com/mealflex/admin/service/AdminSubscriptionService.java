@@ -12,7 +12,7 @@ import com.mealflex.delivery.entity.DeliveryStatus;
 import com.mealflex.delivery.entity.SubscriptionDelivery;
 import com.mealflex.delivery.repository.SubscriptionDeliveryRepository;
 import com.mealflex.notification.entity.Notification;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.payment.service.PaymentService;
 import com.mealflex.subscription.dto.SubscriptionEventResponse;
 import com.mealflex.subscription.entity.Subscription;
@@ -36,7 +36,7 @@ public class AdminSubscriptionService {
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionDeliveryRepository deliveryRepository;
     private final AuditLogRepository auditLogRepository;
-    private final NotificationRepository notificationRepository;
+    private final NotificationEventService notificationEventService;
     private final PaymentService paymentService;
 
     @Transactional(readOnly = true)
@@ -158,9 +158,9 @@ public class AdminSubscriptionService {
     }
 
     private void notify(Subscription subscription, String title, String reason) {
-        notificationRepository.save(Notification.builder().user(subscription.getCustomer()).title(title)
+        notificationEventService.publish(Notification.builder().user(subscription.getCustomer()).title(title)
                 .message(reason).referenceType("SUBSCRIPTION").referenceId(subscription.getId()).build());
-        notificationRepository.save(Notification.builder().user(subscription.getStore().getSeller().getUser())
+        notificationEventService.publish(Notification.builder().user(subscription.getStore().getSeller().getUser())
                 .title("Abonelikte yönetici işlemi").message(reason).referenceType("SUBSCRIPTION")
                 .referenceId(subscription.getId()).build());
     }

@@ -9,7 +9,7 @@ import com.mealflex.delivery.entity.DeliveryStatus;
 import com.mealflex.delivery.entity.SubscriptionDelivery;
 import com.mealflex.delivery.repository.SubscriptionDeliveryRepository;
 import com.mealflex.notification.entity.Notification;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.subscription.service.SubscriptionEventStream;
 import com.mealflex.subscription.service.SubscriptionDatePolicy;
 import lombok.RequiredArgsConstructor;
@@ -28,7 +28,7 @@ import java.util.List;
 public class SubscriptionScheduler {
 
     private final SubscriptionRepository subscriptionRepository;
-    private final NotificationRepository notificationRepository;
+    private final NotificationEventService notificationEventService;
     private final SubscriptionDeliveryRepository deliveryRepository;
     private final AuditLogRepository auditLogRepository;
     private final SubscriptionEventStream eventStream;
@@ -110,7 +110,7 @@ public class SubscriptionScheduler {
     }
 
     private void notify(Subscription subscription, String title, String message) {
-        notificationRepository.save(Notification.builder()
+        notificationEventService.publish(Notification.builder()
                 .user(subscription.getCustomer())
                 .title(title)
                 .message(message)
@@ -120,7 +120,7 @@ public class SubscriptionScheduler {
     }
 
     private void notifySeller(Subscription subscription, String title, String message) {
-        notificationRepository.save(Notification.builder()
+        notificationEventService.publish(Notification.builder()
                 .user(subscription.getStore().getSeller().getUser())
                 .title(title)
                 .message(message)

@@ -6,7 +6,7 @@ import com.mealflex.review.dto.ReviewResponse;
 import com.mealflex.review.entity.Review;
 import com.mealflex.review.repository.ReviewRepository;
 import com.mealflex.notification.entity.Notification;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.security.UserPrincipal;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -23,7 +23,7 @@ import java.time.Instant;
 public class SellerReviewController {
 
     private final ReviewRepository reviewRepository;
-    private final NotificationRepository notificationRepository;
+    private final NotificationEventService notificationEventService;
 
     @PutMapping("/{reviewId}/reply")
     @Transactional
@@ -36,7 +36,7 @@ public class SellerReviewController {
         review.setSellerReply(request.getReply().trim());
         review.setSellerRepliedAt(Instant.now());
         reviewRepository.save(review);
-        notificationRepository.save(Notification.builder()
+        notificationEventService.publish(Notification.builder()
                 .user(review.getCustomer())
                 .title("Yorumunuza yanıt verildi")
                 .message(review.getStore().getName() + " yorumunuza yanıt verdi.")

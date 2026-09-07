@@ -12,7 +12,7 @@ import com.mealflex.menu.entity.Menu;
 import com.mealflex.menu.entity.MenuVersion;
 import com.mealflex.menu.repository.MenuRepository;
 import com.mealflex.menu.service.MenuVersionService;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.review.repository.ReviewRepository;
 import com.mealflex.payment.entity.Payment;
 import com.mealflex.payment.entity.PaymentMethod;
@@ -74,7 +74,7 @@ class SubscriptionServiceTest {
     @Mock private StoreClosedDateRepository closedDateRepository;
     @Mock private SubscriptionDeliveryRepository deliveryRepository;
     @Mock private StoreEligibilityService eligibilityService;
-    @Mock private NotificationRepository notificationRepository;
+    @Mock private NotificationEventService notificationEventService;
     @Mock private ReviewRepository reviewRepository;
     @Mock private AuditLogRepository auditLogRepository;
     @Mock private SellerStoreAccessService storeAccessService;
@@ -104,9 +104,9 @@ class SubscriptionServiceTest {
                 deliveryPlanningService, deliverySlotRepository, storeCapacityService);
         SubscriptionLifecycleService lifecycleService = new SubscriptionLifecycleService(
                 subscriptionRepository, deliveryPlanningService, paymentService, auditLogRepository,
-                notificationRepository, storeAccessService, payoutService, storeCapacityService);
+                notificationEventService, storeAccessService, payoutService, storeCapacityService);
         service = new SubscriptionService(subscriptionRepository, storeRepository, userRepository, deliveryRepository,
-                notificationRepository, reviewRepository, auditLogRepository, storeAccessService, paymentService,
+                notificationEventService, reviewRepository, auditLogRepository, storeAccessService, paymentService,
                 eventStream, menuVersionService, campaignService, preparationService, lifecycleService);
 
         customer = User.builder().firstName("Ayşe").lastName("Yılmaz").email("a@example.com").password("x").build();
@@ -255,7 +255,7 @@ class SubscriptionServiceTest {
 
         assertThat(response.getId()).isEqualTo(50L);
         verify(subscriptionRepository, never()).save(any());
-        verify(notificationRepository, never()).save(any());
+        verify(notificationEventService, never()).publish(any(com.mealflex.notification.entity.Notification.class));
     }
 
     @Test
@@ -385,7 +385,7 @@ class SubscriptionServiceTest {
         assertThat(first.getId()).isEqualTo(52L);
         assertThat(second.getId()).isEqualTo(first.getId());
         verify(subscriptionRepository, org.mockito.Mockito.times(1)).save(any(Subscription.class));
-        verify(notificationRepository, org.mockito.Mockito.times(2)).save(any());
+        verify(notificationEventService, org.mockito.Mockito.times(2)).publish(any(com.mealflex.notification.entity.Notification.class));
     }
 
     private CreateSubscriptionRequest validRequest() {

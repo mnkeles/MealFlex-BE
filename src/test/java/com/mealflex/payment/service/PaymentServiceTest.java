@@ -3,13 +3,14 @@ package com.mealflex.payment.service;
 import com.mealflex.audit.repository.AuditLogRepository;
 import com.mealflex.delivery.repository.SubscriptionDeliveryRepository;
 import com.mealflex.menu.entity.Menu;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.payment.entity.*;
 import com.mealflex.payment.dto.CreatePaymentMethodRequest;
 import com.mealflex.payment.provider.PaymentProvider;
 import com.mealflex.payment.repository.*;
 import com.mealflex.store.entity.Store;
 import com.mealflex.store.service.SellerStoreAccessService;
+import com.mealflex.seller.entity.SellerProfile;
 import com.mealflex.common.exception.ResourceNotFoundException;
 import com.mealflex.subscription.entity.Subscription;
 import com.mealflex.subscription.repository.SubscriptionRepository;
@@ -34,7 +35,7 @@ class PaymentServiceTest {
     @Mock PaymentAttemptRepository attemptRepository; @Mock RefundRepository refundRepository; @Mock CommissionRuleRepository ruleRepository;
     @Mock InvoiceRepository invoiceRepository; @Mock PaymentWebhookEventRepository webhookRepository; @Mock SubscriptionRepository subscriptionRepository;
     @Mock SellerPayoutRepository payoutRepository;
-    @Mock SubscriptionDeliveryRepository deliveryRepository; @Mock UserRepository userRepository; @Mock NotificationRepository notificationRepository;
+    @Mock SubscriptionDeliveryRepository deliveryRepository; @Mock UserRepository userRepository; @Mock NotificationEventService notificationEventService;
     @Mock AuditLogRepository auditLogRepository; @Mock SellerStoreAccessService storeAccessService;
     @Mock MealBalanceService mealBalanceService;
     @Mock PaymentAllocationRepository allocationRepository;
@@ -94,6 +95,41 @@ class PaymentServiceTest {
         when(modificationRepository.findBySubscriptionIdOrderByCreatedAtDesc(4L)).thenReturn(List.of(deferred));
         Payment reduced = service.chargeForCalendarWeek(subscription, monday.plusWeeks(1));
         assertThat(reduced.getGrossAmount()).isEqualByComparingTo("430.00");
+    }
+
+    @Test
+    void activeSubscriptionPaymentMethodCanBeChangedAndFailedCollectionUsesNewCard() {
+        Payment failed = weeklyFailedPayment();
+        Subscription subscription = failed.getSubscription();
+        PaymentMethod replacement = PaymentMethod.builder().customer(failed.getCustomer()).provider("MOCK")
+                .providerToken("tok_new").brand("Mastercard").lastFour("5555").expiryMonth(12).expiryYear(2030).active(true).build();
+        replacement.setId(44L);
+        when(subscriptionRepository.findById(4L)).thenReturn(Optional.of(subscription));
+        when(methodRepository.findByIdAndCustomerIdAndActiveTrue(44L, 1L)).thenReturn(Optional.of(replacement));
+        when(paymentRepository.findBySubscriptionIdOrderByCreatedAtDesc(4L)).thenReturn(List.of(failed));
+
+        var response = service.changeSubscriptionPaymentMethod(1L, 4L, 44L);
+
+        assertThat(subscription.getPaymentMethod()).isSameAs(replacement);
+        assertThat(failed.getPaymentMethod()).isSameAs(replacement);
+        assertThat(response.lastFour()).isEqualTo("5555");
+        verify(subscriptionRepository).save(subscription);
+        verify(paymentRepository).save(failed);
+    }
+
+    @Test
+    void cardUsedByAnActiveSubscriptionCannotBeDeleted() {
+        Payment payment = paymentFixture(PaymentStatus.SUCCEEDED);
+        PaymentMethod method = payment.getPaymentMethod();
+        method.setActive(true);
+        when(methodRepository.findByIdAndCustomerIdAndActiveTrue(4L, 1L)).thenReturn(Optional.of(method));
+        when(subscriptionRepository.existsByPaymentMethodIdAndStatusIn(eq(4L), anyList())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.deleteMethod(1L, 4L))
+                .isInstanceOf(com.mealflex.common.exception.BusinessException.class)
+                .hasMessageContaining("abonelikte kullanılıyor");
+
+        verify(methodRepository, never()).save(any());
     }
 
     @Test
@@ -240,7 +276,8 @@ class PaymentServiceTest {
     }
 
     private PaymentAllocation allocation(Payment payment, long deliveryId, String amount) {
-        var delivery = com.mealflex.delivery.entity.SubscriptionDelivery.builder().subscription(payment.getSubscription()).build();
+        var delivery = com.mealflex.delivery.entity.SubscriptionDelivery.builder().subscription(payment.getSubscription())
+                .deliveryDate(LocalDate.of(2026, 9, 7)).status(com.mealflex.delivery.entity.DeliveryStatus.SCHEDULED).build();
         delivery.setId(deliveryId);
         PaymentAllocation allocation = PaymentAllocation.builder().payment(payment).delivery(delivery).amount(new BigDecimal(amount)).build();
         allocation.setId(deliveryId);
@@ -352,6 +389,54 @@ class PaymentServiceTest {
     }
 
     @Test
+    void failedWeeklyCollectionIsRetriedAndSuspendedAfterThirdAttempt() {
+        Payment payment = weeklyFailedPayment();
+        PaymentAllocation allocation = allocation(payment, 7L, "100.00");
+        when(paymentRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(payment));
+        when(allocationRepository.findByPaymentId(10L)).thenReturn(List.of(allocation));
+        when(deliveryRepository.findBySubscriptionId(4L)).thenReturn(List.of(allocation.getDelivery()));
+        when(attemptRepository.countByPaymentId(10L)).thenReturn(2L);
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(mealBalanceService.debitUpTo(any(), any(), any(), any(), any(), anyString(), anyString())).thenReturn(BigDecimal.ZERO);
+        when(provider.charge(anyString(), any(), anyString(), anyString()))
+                .thenReturn(new PaymentProvider.ChargeResult(false, null, "request-3", "DECLINED", "Kart reddedildi"));
+
+        service.retry(1L, 10L);
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(payment.getNextRetryAt()).isNull();
+        assertThat(payment.getCollectionFailedAt()).isNotNull();
+        assertThat(payment.getSubscription().getStatus()).isEqualTo(com.mealflex.subscription.entity.SubscriptionStatus.PAYMENT_SUSPENDED);
+        verify(notificationEventService, times(2)).publish(any(com.mealflex.notification.entity.Notification.class));
+        verify(subscriptionRepository).save(payment.getSubscription());
+    }
+
+    @Test
+    void successfulWeeklyRetryClearsDunningAndReactivatesSubscription() {
+        Payment payment = weeklyFailedPayment();
+        payment.setCollectionFailedAt(Instant.now().minusSeconds(3600));
+        payment.setNextRetryAt(Instant.now().minusSeconds(1));
+        payment.getSubscription().setStatus(com.mealflex.subscription.entity.SubscriptionStatus.PAYMENT_SUSPENDED);
+        PaymentAllocation allocation = allocation(payment, 7L, "100.00");
+        when(paymentRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(payment));
+        when(allocationRepository.findByPaymentId(10L)).thenReturn(List.of(allocation));
+        when(deliveryRepository.findBySubscriptionId(4L)).thenReturn(List.of(allocation.getDelivery()));
+        when(attemptRepository.countByPaymentId(10L)).thenReturn(1L);
+        when(mealBalanceService.debitUpTo(any(), any(), any(), any(), any(), anyString(), anyString())).thenReturn(BigDecimal.ZERO);
+        when(provider.charge(anyString(), any(), anyString(), anyString()))
+                .thenReturn(new PaymentProvider.ChargeResult(true, "provider-retry", "request-2", "00", null));
+        when(invoiceRepository.findByPaymentId(10L)).thenReturn(Optional.empty());
+
+        service.retryCollection(10L);
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(payment.getCollectionFailedAt()).isNull();
+        assertThat(payment.getNextRetryAt()).isNull();
+        assertThat(payment.getSubscription().getStatus()).isEqualTo(com.mealflex.subscription.entity.SubscriptionStatus.ACTIVE);
+        verify(subscriptionRepository).save(payment.getSubscription());
+    }
+
+    @Test
     void failedProviderResponseIsRecordedWithoutLeakingTokenCardOrCvvData() {
         Payment payment = paymentFixture(PaymentStatus.PENDING);
         when(provider.name()).thenReturn("MOCK");
@@ -432,7 +517,8 @@ class PaymentServiceTest {
 
     private Payment paymentFixture(PaymentStatus status) {
         User customer = User.builder().email("customer@example.com").password("x").firstName("A").lastName("B").build(); customer.setId(1L);
-        Store store = Store.builder().name("Mağaza").build(); store.setId(2L);
+        User sellerUser = User.builder().email("seller@example.com").password("x").firstName("S").lastName("B").build(); sellerUser.setId(9L);
+        Store store = Store.builder().name("Mağaza").seller(SellerProfile.builder().user(sellerUser).build()).build(); store.setId(2L);
         Menu menu = Menu.builder().store(store).name("Menü").pricePerPerson(BigDecimal.TEN).build(); menu.setId(3L);
         PaymentMethod method = PaymentMethod.builder().customer(customer).provider("MOCK").providerToken("tok_test").brand("Visa").lastFour("4242").expiryMonth(12).expiryYear(2030).build(); method.setId(4L);
         Subscription subscription = Subscription.builder().customer(customer).store(store).menu(menu).paymentMethod(method).totalAmount(new BigDecimal("100.00")).serviceDayCount(5).build(); subscription.setId(4L);
@@ -441,6 +527,19 @@ class PaymentServiceTest {
                 .commissionAmount(new BigDecimal("12.00")).commissionTaxAmount(new BigDecimal("2.40")).refundedAmount(new BigDecimal("0.00"))
                 .netAmount(new BigDecimal("85.60")).providerPaymentId("provider-1").paidAt(java.time.Instant.now()).build();
         payment.setId(10L);
+        return payment;
+    }
+
+    private Payment weeklyFailedPayment() {
+        Payment payment = paymentFixture(PaymentStatus.FAILED);
+        payment.setIdempotencyKey("subscription-week-charge-4-2026-09-07");
+        payment.setPaidAt(null);
+        payment.setBalanceAmount(new BigDecimal("0.00"));
+        payment.setCardAmount(new BigDecimal("100.00"));
+        payment.getSubscription().setStatus(com.mealflex.subscription.entity.SubscriptionStatus.ACTIVE);
+        payment.getSubscription().setPricePerPerson(new BigDecimal("100.00"));
+        payment.getSubscription().setPersonCount(1);
+        payment.getSubscription().setServiceDayCount(1);
         return payment;
     }
 

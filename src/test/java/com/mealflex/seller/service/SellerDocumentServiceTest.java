@@ -11,7 +11,7 @@ import com.mealflex.store.service.SellerStoreAccessService;
 import com.mealflex.user.entity.User;
 import com.mealflex.user.repository.UserRepository;
 import com.mealflex.audit.repository.AuditLogRepository;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -38,7 +38,7 @@ class SellerDocumentServiceTest {
     @Mock private SellerStoreAccessService storeAccessService;
     @Mock private UserRepository userRepository;
     @Mock private AuditLogRepository auditLogRepository;
-    @Mock private NotificationRepository notificationRepository;
+    @Mock private NotificationEventService notificationEventService;
     @InjectMocks private SellerDocumentService documentService;
 
     @Test
@@ -84,7 +84,7 @@ class SellerDocumentServiceTest {
         assertThat(document.getVerificationStatus()).isEqualTo("VERIFIED");
         verify(auditLogRepository).save(argThat(a -> a.getActorId().equals(1L)
                 && a.getNewValue().contains("Belge ve tarih bilgileri doğrulandı.")));
-        verify(notificationRepository).save(argThat(n -> n.getUser().equals(sellerUser)));
+        verify(notificationEventService).publish(argThat(n -> n.getUser().equals(sellerUser)));
     }
 
     @Test

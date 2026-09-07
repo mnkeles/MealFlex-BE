@@ -6,7 +6,7 @@ import com.mealflex.common.exception.*;
 import com.mealflex.delivery.entity.*;
 import com.mealflex.delivery.repository.SubscriptionDeliveryRepository;
 import com.mealflex.notification.entity.Notification;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.payment.entity.Refund;
 import com.mealflex.payment.service.PaymentService;
 import com.mealflex.subscription.dto.*;
@@ -24,7 +24,7 @@ import java.util.*;
 public class SubscriptionChangeService {
     private final SubscriptionRepository subscriptionRepository; private final SubscriptionDeliveryRepository deliveryRepository;
     private final SubscriptionFreezeRepository freezeRepository; private final SubscriptionAdjustmentRepository adjustmentRepository;
-    private final PaymentService paymentService; private final NotificationRepository notificationRepository; private final AuditLogRepository auditLogRepository;
+    private final PaymentService paymentService; private final NotificationEventService notificationEventService; private final AuditLogRepository auditLogRepository;
     private final com.mealflex.payment.service.SellerPayoutService sellerPayoutService;
 
     @Transactional
@@ -89,6 +89,6 @@ public class SubscriptionChangeService {
     private BigDecimal dailyAmount(Subscription subscription, SubscriptionDelivery delivery) { return paymentService.deliveryAdjustmentValue(subscription, delivery); }
     private void markSkipped(SubscriptionDelivery delivery, Long userId, String reason) { delivery.setStatus(DeliveryStatus.SKIPPED); delivery.setChangeReason(reason); delivery.setChangedAt(Instant.now()); delivery.setChangedByUserId(userId); deliveryRepository.save(delivery); }
     private SubscriptionAdjustment adjustment(Subscription s, SubscriptionDelivery d, String type, BigDecimal amount, Refund refund, String reason) { return SubscriptionAdjustment.builder().subscription(s).delivery(d).adjustmentType(type).status(refund == null ? "NOT_CHARGED" : refund.getStatus().name()).amount(amount).currency("TRY").refund(refund).reason(reason).build(); }
-    private void notifyBoth(Subscription s, String title, String message) { notificationRepository.save(Notification.builder().user(s.getCustomer()).title(title).message(message).referenceType("SUBSCRIPTION_DELIVERY").referenceId(s.getId()).build()); notificationRepository.save(Notification.builder().user(s.getStore().getSeller().getUser()).title(title).message(message).referenceType("SUBSCRIPTION").referenceId(s.getId()).build()); }
+    private void notifyBoth(Subscription s, String title, String message) { notificationEventService.publish(Notification.builder().user(s.getCustomer()).title(title).message(message).referenceType("SUBSCRIPTION_DELIVERY").referenceId(s.getId()).build()); notificationEventService.publish(Notification.builder().user(s.getStore().getSeller().getUser()).title(title).message(message).referenceType("SUBSCRIPTION").referenceId(s.getId()).build()); }
     private void audit(Long actor, String action, Long id, String value) { auditLogRepository.save(AuditLog.builder().actorId(actor).action(action).entityType("SUBSCRIPTION").entityId(id).newValue(value).timestamp(Instant.now()).build()); }
 }

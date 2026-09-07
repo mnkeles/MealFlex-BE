@@ -3,7 +3,7 @@ package com.mealflex.store.service;
 import com.mealflex.address.repository.AddressRepository;
 import com.mealflex.menu.repository.MenuRepository;
 import com.mealflex.notification.entity.Notification;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.seller.repository.SellerProfileRepository;
 import com.mealflex.store.entity.*;
 import com.mealflex.store.repository.*;
@@ -33,7 +33,7 @@ class StoreDiscoveryServiceTest {
     @Mock StoreViewRepository storeViewRepository;
     @Mock UserRepository userRepository;
     @Mock FavoriteRepository favoriteRepository;
-    @Mock NotificationRepository notificationRepository;
+    @Mock NotificationEventService notificationEventService;
     @InjectMocks StoreService storeService;
 
     @Test
@@ -71,6 +71,6 @@ class StoreDiscoveryServiceTest {
 
         storeService.setTemporaryClosed(9L, 5L, false);
 
-        verify(notificationRepository).save(ArgumentMatchers.any(Notification.class));
+        verify(notificationEventService).publish(ArgumentMatchers.any(Notification.class));
     }
 }

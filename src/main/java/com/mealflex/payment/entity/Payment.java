@@ -33,4 +33,6 @@ public class Payment extends BaseEntity {
     private String failureCode;
     @Column(length = 500) private String failureMessage;
     private Instant paidAt;
+    private Instant collectionFailedAt;
+    private Instant nextRetryAt;
 }

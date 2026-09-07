@@ -8,7 +8,7 @@ import com.mealflex.complaint.entity.Complaint;
 import com.mealflex.complaint.entity.ComplaintStatus;
 import com.mealflex.complaint.repository.ComplaintRepository;
 import com.mealflex.delivery.repository.SubscriptionDeliveryRepository;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.payment.repository.PaymentRepository;
 import com.mealflex.payment.entity.Payment;
 import com.mealflex.payment.service.PaymentService;
@@ -34,7 +34,7 @@ class AdminComplaintServiceTest {
     @Mock CampaignRepository campaigns;
     @Mock SubscriptionDeliveryRepository deliveries;
     @Mock AuditLogRepository audits;
-    @Mock NotificationRepository notifications;
+    @Mock NotificationEventService notifications;
     @InjectMocks AdminComplaintService service;
 
     @Test
@@ -60,7 +60,7 @@ class AdminComplaintServiceTest {
         assertThat(campaign.getValue().getTargetCustomer()).isSameAs(customer);
         assertThat(campaign.getValue().getDiscountValue()).isEqualByComparingTo("75");
         verify(audits).save(argThat(a -> a.getActorId().equals(99L) && a.getAction().equals("ADMIN_COMPLAINT_RESOLVED")));
-        verify(notifications, times(2)).save(any());
+        verify(notifications, times(2)).publish(any(com.mealflex.notification.entity.Notification.class));
     }
 
     @Test

@@ -3,7 +3,7 @@ package com.mealflex.store.service;
 import com.mealflex.address.repository.AddressRepository;
 import com.mealflex.common.exception.BusinessException;
 import com.mealflex.menu.repository.MenuRepository;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.seller.repository.SellerProfileRepository;
 import com.mealflex.seller.service.SellerDocumentService;
 import com.mealflex.seller.entity.SellerProfile;
@@ -52,7 +52,7 @@ class StoreServiceTest {
     @Mock private StoreViewRepository storeViewRepository;
     @Mock private UserRepository userRepository;
     @Mock private FavoriteRepository favoriteRepository;
-    @Mock private NotificationRepository notificationRepository;
+    @Mock private NotificationEventService notificationEventService;
     @Mock private SellerDocumentService sellerDocumentService;
     @Mock private SubscriptionServiceDayChangeService subscriptionServiceDayChangeService;
     @InjectMocks private StoreService service;

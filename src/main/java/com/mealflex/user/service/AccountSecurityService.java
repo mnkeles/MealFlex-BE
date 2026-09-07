@@ -10,6 +10,7 @@ import com.mealflex.user.entity.*;
 import com.mealflex.user.repository.*;
 import com.mealflex.audit.entity.AuditLog;
 import com.mealflex.audit.repository.AuditLogRepository;
+import com.mealflex.notification.service.VerificationNotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -33,6 +34,7 @@ public class AccountSecurityService {
     private final PasswordEncoder passwordEncoder;
     private final RecentAuthenticationService recentAuthenticationService;
     private final AuditLogRepository auditLogRepository;
+    private final VerificationNotificationService verificationNotifications;
 
     @Value("${app.verification.expose-code:false}") private boolean exposeCode;
 
@@ -41,6 +43,7 @@ public class AccountSecurityService {
         Optional<User> found = userRepository.findByEmail(email == null ? "" : email.trim().toLowerCase(Locale.ROOT));
         if (found.isEmpty()) return Map.of("message", "E-posta kayıtlıysa sıfırlama bağlantısı gönderildi.");
         String token = issue(found.get(), "PASSWORD_RESET", false);
+        verificationNotifications.sendPasswordReset(found.get(), token);
         return response("E-posta kayıtlıysa sıfırlama bağlantısı gönderildi.", token);
     }
 
@@ -57,7 +60,9 @@ public class AccountSecurityService {
     public Map<String,Object> requestEmailVerification(Long userId) {
         User user = user(userId);
         if (user.isEmailVerified()) return Map.of("message", "E-posta adresiniz zaten doğrulandı.");
-        return response("Doğrulama bağlantısı e-posta adresinize gönderildi.", issue(user, "EMAIL_VERIFICATION", false));
+        String token = issue(user, "EMAIL_VERIFICATION", false);
+        verificationNotifications.sendEmailVerification(user, token);
+        return response("Doğrulama bağlantısı e-posta adresinize gönderildi.", token);
     }
 
     @Transactional
@@ -71,7 +76,9 @@ public class AccountSecurityService {
         User user = user(userId);
         if (user.getPhone() == null || user.getPhone().isBlank()) throw new BusinessException("PHONE_REQUIRED", "Önce profilinize telefon numarası ekleyin.");
         if (user.isPhoneVerified()) return Map.of("message", "Telefon numaranız zaten doğrulandı.");
-        return response("Doğrulama kodu telefonunuza gönderildi.", issue(user, "PHONE_OTP", true));
+        String otp = issue(user, "PHONE_OTP", true);
+        verificationNotifications.sendPhoneOtp(user, otp);
+        return response("Doğrulama kodu telefonunuza gönderildi.", otp);
     }
 
     @Transactional
@@ -105,7 +112,7 @@ public class AccountSecurityService {
     @Transactional
     public void deleteAccount(Long userId,String confirmation) {
         if (!"HESABIMI SIL".equals(confirmation)) throw new BusinessException("CONFIRMATION_REQUIRED", "Onay alanına HESABIMI SIL yazın.");
-        if (!subscriptionRepository.findByCustomerIdAndStatusIn(userId,List.of(SubscriptionStatus.PENDING_APPROVAL,SubscriptionStatus.APPROVED,SubscriptionStatus.ACTIVE,SubscriptionStatus.POSTPONED),org.springframework.data.domain.Pageable.ofSize(1)).isEmpty()) throw new BusinessException("ACTIVE_SUBSCRIPTION_EXISTS","Aktif veya bekleyen abonelik varken hesap silinemez.");
+        if (!subscriptionRepository.findByCustomerIdAndStatusIn(userId,List.of(SubscriptionStatus.PENDING_APPROVAL,SubscriptionStatus.APPROVED,SubscriptionStatus.ACTIVE,SubscriptionStatus.PAYMENT_SUSPENDED,SubscriptionStatus.POSTPONED),org.springframework.data.domain.Pageable.ofSize(1)).isEmpty()) throw new BusinessException("ACTIVE_SUBSCRIPTION_EXISTS","Aktif veya bekleyen abonelik varken hesap silinemez.");
         User user=user(userId); revokeAll(userId); user.setActive(false); user.setAccountDeletedAt(Instant.now()); user.setEmail("deleted+"+userId+"-"+System.currentTimeMillis()+"@mealflex.invalid"); user.setPhone(null); user.setFirstName("Silinmiş"); user.setLastName("Kullanıcı"); user.setPassword(passwordEncoder.encode(UUID.randomUUID().toString())); userRepository.save(user); auditLogRepository.save(AuditLog.builder().actorId(userId).action("ACCOUNT_ANONYMIZED").entityType("USER").entityId(userId).oldValue("active=true").newValue("active=false; personal data anonymized").timestamp(Instant.now()).build());
     }
 

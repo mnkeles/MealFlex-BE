@@ -9,7 +9,7 @@ import com.mealflex.delivery.repository.SubscriptionDeliveryRepository;
 import com.mealflex.menu.entity.Menu;
 import com.mealflex.menu.repository.MenuRepository;
 import com.mealflex.notification.entity.Notification;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.payment.entity.*;
 import com.mealflex.payment.service.PaymentService;
 import com.mealflex.store.repository.BusinessHourRepository;
@@ -34,7 +34,7 @@ public class DeliveryModificationService {
     private final PaymentService paymentService; private final DeliveryModificationHistoryRepository historyRepository;
     private final com.mealflex.payment.service.MealBalanceService mealBalanceService;
     private final com.mealflex.subscription.repository.SubscriptionRepository subscriptionRepository;
-    private final NotificationRepository notificationRepository; private final AuditLogRepository auditLogRepository;
+    private final NotificationEventService notificationEventService; private final AuditLogRepository auditLogRepository;
     private final SellerStoreAccessService storeAccessService;
     private final SubscriptionEventStream eventStream;
     private final StoreCapacityService storeCapacityService;
@@ -63,7 +63,7 @@ public class DeliveryModificationService {
                 .priceDifference(p.difference).requestStatus(DeliveryModificationRequestStatus.PENDING).build());
         auditLogRepository.save(AuditLog.builder().actorId(userId).action("DELIVERY_CHANGE_REQUESTED").entityType("DELIVERY").entityId(deliveryId)
                 .newValue("addressId=" + p.address.getId() + ",time=" + p.time + ",persons=" + p.personCount + ",difference=" + p.difference).timestamp(Instant.now()).build());
-        notificationRepository.save(Notification.builder().user(p.subscription.getStore().getSeller().getUser())
+        notificationEventService.publish(Notification.builder().user(p.subscription.getStore().getSeller().getUser())
                 .title("Teslimat değişikliği talebi")
                 .message(p.delivery.getDeliveryDate() + " tarihli teslimat için saat veya kişi sayısı değişikliği onayınızı bekliyor.")
                 .referenceType("DELIVERY_CHANGE_REQUEST").referenceId(p.subscription.getId()).build());
@@ -137,7 +137,7 @@ public class DeliveryModificationService {
                 : history.getPriceDifference().signum() > 0
                 ? " Fiyat farkında önce öğün bakiyeniz, kalan tutarda kayıtlı kartınız kullanıldı."
                 : "";
-        notificationRepository.save(Notification.builder().user(subscription.getCustomer()).title("Teslimat değişikliği onaylandı")
+        notificationEventService.publish(Notification.builder().user(subscription.getCustomer()).title("Teslimat değişikliği onaylandı")
                 .message(delivery.getDeliveryDate() + " tarihli teslimat için saat veya kişi sayısı değişikliği talebiniz onaylandı." + balanceMessage)
                 .referenceType("DELIVERY_CHANGE_REQUEST").referenceId(subscription.getId()).build());
         return toRequestResponse(history);
@@ -161,7 +161,7 @@ public class DeliveryModificationService {
         historyRepository.save(history);
         auditLogRepository.save(AuditLog.builder().actorId(sellerUserId).action("DELIVERY_CHANGE_REJECTED").entityType("DELIVERY").entityId(history.getDelivery().getId())
                 .newValue("requestId=" + history.getId() + ",reason=" + reason.trim()).timestamp(Instant.now()).build());
-        notificationRepository.save(Notification.builder().user(subscription.getCustomer()).title("Teslimat değişikliği reddedildi")
+        notificationEventService.publish(Notification.builder().user(subscription.getCustomer()).title("Teslimat değişikliği reddedildi")
                 .message(subscription.getStore().getName() + " saat veya kişi sayısı değişikliği talebinizi reddetti. Neden: " + reason.trim())
                 .referenceType("DELIVERY_CHANGE_REQUEST").referenceId(subscription.getId()).build());
         return toRequestResponse(history);

@@ -7,6 +7,7 @@ import com.mealflex.subscription.entity.Subscription;
 import com.mealflex.subscription.entity.SubscriptionStatus;
 import com.mealflex.subscription.repository.SubscriptionRepository;
 import com.mealflex.audit.repository.AuditLogRepository;
+import com.mealflex.notification.service.VerificationNotificationService;
 import com.mealflex.user.entity.User;
 import com.mealflex.user.entity.UserDataRequest;
 import com.mealflex.user.repository.*;
@@ -25,9 +26,24 @@ import static org.mockito.Mockito.*;
 class AccountSecurityServiceTest {
  @Mock UserRepository userRepository; @Mock VerificationTokenRepository tokenRepository; @Mock UserSessionRepository sessionRepository;
  @Mock NotificationPreferenceRepository preferenceRepository; @Mock ConsentRecordRepository consentRepository; @Mock UserDataRequestRepository dataRequestRepository;
- @Mock SubscriptionRepository subscriptionRepository; @Mock PasswordEncoder passwordEncoder; @Mock AuditLogRepository auditLogRepository; @InjectMocks AccountSecurityService service;
+ @Mock SubscriptionRepository subscriptionRepository; @Mock PasswordEncoder passwordEncoder; @Mock AuditLogRepository auditLogRepository;
+ @Mock VerificationNotificationService verificationNotifications; @InjectMocks AccountSecurityService service;
 
  @Test void forgotPasswordDoesNotRevealUnknownEmail(){when(userRepository.findByEmail("none@example.com")).thenReturn(Optional.empty());var response=service.requestPasswordReset("none@example.com");assertTrue(response.get("message").toString().contains("kayıtlıysa"));verify(tokenRepository,never()).save(any());}
+
+ @Test void verificationRequestsUseTheirConfiguredExternalChannelTemplates(){
+  User user=User.builder().email("customer@example.com").password("hash").firstName("Test").lastName("Müşteri").phone("5550000000").active(true).build();user.setId(5L);
+  when(userRepository.findByEmail("customer@example.com")).thenReturn(Optional.of(user));
+  when(userRepository.findById(5L)).thenReturn(Optional.of(user));
+
+  service.requestPasswordReset("customer@example.com");
+  service.requestEmailVerification(5L);
+  service.requestPhoneOtp(5L);
+
+  verify(verificationNotifications).sendPasswordReset(eq(user),anyString());
+  verify(verificationNotifications).sendEmailVerification(eq(user),anyString());
+  verify(verificationNotifications).sendPhoneOtp(eq(user),matches("\\d{6}"));
+ }
 
  @Test void passwordResetConsumesTokenChangesPasswordAndRevokesSessions(){
   User user=User.builder().email("customer@example.com").password("old-hash").firstName("Test").lastName("Müşteri").active(true).build();user.setId(5L);

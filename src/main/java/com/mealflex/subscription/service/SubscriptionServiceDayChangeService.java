@@ -4,7 +4,7 @@ import com.mealflex.delivery.entity.DeliveryStatus;
 import com.mealflex.delivery.entity.SubscriptionDelivery;
 import com.mealflex.delivery.repository.SubscriptionDeliveryRepository;
 import com.mealflex.notification.entity.Notification;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.subscription.entity.Subscription;
 import com.mealflex.subscription.entity.SubscriptionStatus;
 import com.mealflex.subscription.repository.SubscriptionRepository;
@@ -33,14 +33,14 @@ public class SubscriptionServiceDayChangeService {
     private static final List<SubscriptionStatus> PLANNED_SUBSCRIPTION_STATUSES = List.of(
             SubscriptionStatus.APPROVED,
             SubscriptionStatus.ACTIVE,
-            SubscriptionStatus.POSTPONED);
+            SubscriptionStatus.POSTPONED, SubscriptionStatus.PAYMENT_SUSPENDED);
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter
             .ofPattern("d MMMM yyyy", Locale.forLanguageTag("tr-TR"));
     private static final String CHANGE_REASON_PREFIX = "SERVICE_DAY_CHANGE";
 
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionDeliveryRepository deliveryRepository;
-    private final NotificationRepository notificationRepository;
+    private final NotificationEventService notificationEventService;
 
     /**
      * Cancels only future, scheduled deliveries that fall on the newly closed
@@ -78,7 +78,7 @@ public class SubscriptionServiceDayChangeService {
             }
 
             deliveryRepository.saveAll(deliveriesToCancel);
-            notificationRepository.save(Notification.builder()
+            notificationEventService.publish(Notification.builder()
                     .user(subscription.getCustomer())
                     .title("Teslimat günleriniz güncellendi")
                     .message(subscription.getStore().getName() + " işletmesinin çalışma günleri güncellendi. "

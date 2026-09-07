@@ -18,6 +18,7 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
     Optional<Payment> findFirstBySubscriptionIdOrderByCreatedAtDesc(Long subscriptionId);
     List<Payment> findBySubscriptionIdOrderByCreatedAtDesc(Long subscriptionId);
     List<Payment> findByCustomerIdOrderByCreatedAtDesc(Long customerId);
+    List<Payment> findTop100ByStatusAndNextRetryAtLessThanEqualOrderByNextRetryAtAsc(PaymentStatus status, Instant now);
     @Query("select p from Payment p where p.store.id=:storeId and p.createdAt between :start and :end order by p.createdAt desc")
     List<Payment> findStoreLedger(@Param("storeId") Long storeId, @Param("start") Instant start, @Param("end") Instant end);
 }

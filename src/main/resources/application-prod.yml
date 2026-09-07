@@ -16,6 +16,19 @@ logging:
     org.hibernate.SQL: WARN
 
 app:
+  frontend:
+    base-url: ${FRONTEND_BASE_URL}
+  notifications:
+    external-enabled: ${NOTIFICATION_EXTERNAL_ENABLED}
+    email:
+      endpoint: ${NOTIFICATION_EMAIL_ENDPOINT}
+      api-key: ${NOTIFICATION_EMAIL_API_KEY}
+    sms:
+      endpoint: ${NOTIFICATION_SMS_ENDPOINT}
+      api-key: ${NOTIFICATION_SMS_API_KEY}
+    push:
+      endpoint: ${NOTIFICATION_PUSH_ENDPOINT}
+      api-key: ${NOTIFICATION_PUSH_API_KEY}
   jwt:
     # Varsayılan değer bilinçli olarak yoktur: eksik sır uygulamayı başlatmamalıdır.
     secret: ${JWT_SECRET}

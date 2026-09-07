@@ -36,6 +36,7 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
     boolean existsByMenuIdAndStatusIn(Long menuId, List<SubscriptionStatus> statuses);
 
     boolean existsByStoreIdAndStatusIn(Long storeId, List<SubscriptionStatus> statuses);
+    boolean existsByPaymentMethodIdAndStatusIn(Long paymentMethodId, List<SubscriptionStatus> statuses);
 
     List<Subscription> findByStatusAndStartDateLessThanEqual(SubscriptionStatus status, LocalDate date);
 

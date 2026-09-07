@@ -6,7 +6,7 @@ import com.mealflex.common.exception.BusinessException;
 import com.mealflex.delivery.entity.*;
 import com.mealflex.delivery.repository.SubscriptionDeliveryRepository;
 import com.mealflex.menu.entity.Menu;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.payment.service.PaymentService;
 import com.mealflex.seller.entity.SellerProfile;
 import com.mealflex.store.entity.Store;
@@ -30,7 +30,7 @@ import static org.mockito.Mockito.*;
 class SubscriptionChangeServiceTest {
     @Mock SubscriptionRepository subscriptionRepository; @Mock SubscriptionDeliveryRepository deliveryRepository;
     @Mock SubscriptionFreezeRepository freezeRepository; @Mock SubscriptionAdjustmentRepository adjustmentRepository;
-    @Mock PaymentService paymentService; @Mock NotificationRepository notificationRepository; @Mock AuditLogRepository auditLogRepository;
+    @Mock PaymentService paymentService; @Mock NotificationEventService notificationEventService; @Mock AuditLogRepository auditLogRepository;
     @Mock com.mealflex.payment.service.SellerPayoutService sellerPayoutService;
     @InjectMocks SubscriptionChangeService service;
     private Subscription subscription; private SubscriptionDelivery delivery;
@@ -55,7 +55,7 @@ class SubscriptionChangeServiceTest {
         assertThat(result.adjustmentAmount()).isEqualByComparingTo("100.00");
         verify(paymentService).refundForDeliveryChange(subscription, 5L, new BigDecimal("100.00"), 1L, "Seyahat");
         verify(adjustmentRepository).save(any(SubscriptionAdjustment.class));
-        verify(notificationRepository, times(2)).save(any());
+        verify(notificationEventService, times(2)).publish(any(com.mealflex.notification.entity.Notification.class));
     }
 
     @Test void skipIsRejectedAfterStoreCutoff() {
@@ -79,7 +79,7 @@ class SubscriptionChangeServiceTest {
         assertThat(second.getStatus()).isEqualTo(DeliveryStatus.SKIPPED);
         verify(adjustmentRepository, times(2)).save(any(SubscriptionAdjustment.class));
         verify(freezeRepository).save(any(SubscriptionFreeze.class));
-        verify(notificationRepository, times(2)).save(any());
+        verify(notificationEventService, times(2)).publish(any(com.mealflex.notification.entity.Notification.class));
     }
 
     @Test void resumeRequiresAnOngoingSubscriptionAndNotifiesBothParties() {
@@ -88,6 +88,6 @@ class SubscriptionChangeServiceTest {
         service.resume(1L, 4L);
 
         verify(auditLogRepository).save(any());
-        verify(notificationRepository, times(2)).save(any());
+        verify(notificationEventService, times(2)).publish(any(com.mealflex.notification.entity.Notification.class));
     }
 }

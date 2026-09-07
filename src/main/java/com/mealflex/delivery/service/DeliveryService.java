@@ -13,7 +13,7 @@ import com.mealflex.delivery.repository.SubscriptionDeliveryRepository;
 import com.mealflex.delivery.repository.CourierRepository;
 import com.mealflex.seller.repository.StoreStaffRepository;
 import com.mealflex.notification.entity.Notification;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.review.repository.ReviewRepository;
 import com.mealflex.store.entity.Store;
 import com.mealflex.store.repository.StoreRepository;
@@ -21,6 +21,8 @@ import com.mealflex.store.service.SellerStoreAccessService;
 import com.mealflex.store.repository.StoreClosedDateRepository;
 import com.mealflex.store.entity.StoreClosedDate;
 import com.mealflex.payment.service.SellerPayoutService;
+import com.mealflex.payment.entity.PaymentStatus;
+import com.mealflex.payment.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -31,6 +33,8 @@ import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.DayOfWeek;
+import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import java.util.Map;
 import java.util.LinkedHashMap;
@@ -47,13 +51,14 @@ public class DeliveryService {
 
     private final SubscriptionDeliveryRepository deliveryRepository;
     private final StoreRepository storeRepository;
-    private final NotificationRepository notificationRepository;
+    private final NotificationEventService notificationEventService;
     private final ReviewRepository reviewRepository;
     private final SellerStoreAccessService storeAccessService;
     private final StoreClosedDateRepository closedDateRepository;
     private final CourierRepository courierRepository;
     private final StoreStaffRepository staffRepository;
     private final SellerPayoutService sellerPayoutService;
+    private final PaymentRepository paymentRepository;
 
     public List<DeliveryResponse> getTodaysDeliveries(Long userId) {
         List<Store> stores = storeRepository.findAllBySellerUserIdAndDeletedAtIsNull(userId);
@@ -155,6 +160,7 @@ public class DeliveryService {
     }
 
     private DeliveryResponse markInTransit(SubscriptionDelivery delivery, Long userId) {
+        requireCollectionReady(delivery);
 
         if (!Set.of(DeliveryStatus.SCHEDULED, DeliveryStatus.PREPARING, DeliveryStatus.DELIVERY_ATTEMPTED).contains(delivery.getStatus())) {
             throw new BusinessException("INVALID_STATUS",
@@ -173,7 +179,7 @@ public class DeliveryService {
                 .referenceType("DELIVERY")
                 .referenceId(delivery.getId())
                 .build();
-        notificationRepository.save(notification);
+        notificationEventService.publish(notification);
 
         log.info("Delivery #{} marked as IN_TRANSIT by userId: {}", delivery.getId(), userId);
         return toResponse(delivery);
@@ -203,6 +209,7 @@ public class DeliveryService {
     }
 
     private DeliveryResponse updateStatusInternal(Long userId, SubscriptionDelivery delivery, UpdateDeliveryStatusRequest request) {
+        requireCollectionReady(delivery);
         DeliveryStatus current = delivery.getStatus(); DeliveryStatus target = request.status();
         Map<DeliveryStatus, Set<DeliveryStatus>> allowed = Map.of(
                 DeliveryStatus.SCHEDULED, Set.of(DeliveryStatus.PREPARING, DeliveryStatus.IN_TRANSIT, DeliveryStatus.FAILED),
@@ -235,8 +242,21 @@ public class DeliveryService {
         sellerPayoutService.scheduleAfterFinalWeeklyDelivery(delivery);
         String title = switch (target) { case PREPARING -> "Yemeğiniz hazırlanıyor"; case IN_TRANSIT -> "Siparişiniz yola çıktı"; case DELIVERED -> "Siparişiniz teslim edildi"; case DELIVERY_ATTEMPTED -> "Teslimat denemesi yapıldı"; case FAILED -> "Teslimat gerçekleştirilemedi"; default -> "Teslimat güncellendi"; };
         String message = delivery.getDeliveryDate() + " tarihli teslimatınız: " + title + "." + (request.delayMinutes() != null && request.delayMinutes() > 0 ? " Tahmini gecikme " + request.delayMinutes() + " dakika." : "");
-        notificationRepository.save(Notification.builder().user(delivery.getSubscription().getCustomer()).title(title).message(message).referenceType("DELIVERY").referenceId(delivery.getId()).build());
+        notificationEventService.publish(Notification.builder().user(delivery.getSubscription().getCustomer()).title(title).message(message).referenceType("DELIVERY").referenceId(delivery.getId()).build());
         return toResponse(delivery);
+    }
+
+    private void requireCollectionReady(SubscriptionDelivery delivery) {
+        if (delivery.getSubscription().getStatus() == com.mealflex.subscription.entity.SubscriptionStatus.PAYMENT_SUSPENDED) {
+            throw new BusinessException("WEEKLY_PAYMENT_REQUIRED", "Haftalık ödeme tamamlanmadan teslimat ilerletilemez.");
+        }
+        LocalDate weekStart = delivery.getDeliveryDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        String key = "subscription-week-charge-" + delivery.getSubscription().getId() + "-" + weekStart;
+        paymentRepository.findByIdempotencyKey(key)
+                .filter(payment -> payment.getStatus() == PaymentStatus.FAILED || payment.getStatus() == PaymentStatus.PROCESSING)
+                .ifPresent(payment -> {
+                    throw new BusinessException("WEEKLY_PAYMENT_REQUIRED", "Haftalık ödeme tamamlanmadan teslimat ilerletilemez.");
+                });
     }
 
     public Page<DeliveryResponse> getOrderHistory(Long userId, Long storeId,

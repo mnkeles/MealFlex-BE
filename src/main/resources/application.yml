@@ -53,6 +53,21 @@ management:
       show-details: when_authorized
 
 app:
+  frontend:
+    base-url: ${FRONTEND_BASE_URL:http://localhost:5173}
+  notifications:
+    external-enabled: ${NOTIFICATION_EXTERNAL_ENABLED:false}
+    dispatch-delay-ms: ${NOTIFICATION_DISPATCH_DELAY_MS:30000}
+    max-attempts: ${NOTIFICATION_MAX_ATTEMPTS:5}
+    email:
+      endpoint: ${NOTIFICATION_EMAIL_ENDPOINT:}
+      api-key: ${NOTIFICATION_EMAIL_API_KEY:}
+    sms:
+      endpoint: ${NOTIFICATION_SMS_ENDPOINT:}
+      api-key: ${NOTIFICATION_SMS_API_KEY:}
+    push:
+      endpoint: ${NOTIFICATION_PUSH_ENDPOINT:}
+      api-key: ${NOTIFICATION_PUSH_API_KEY:}
   jwt:
     access-token-expiration-ms: 900000       # 15 minutes
     refresh-token-expiration-ms: 604800000   # 7 days

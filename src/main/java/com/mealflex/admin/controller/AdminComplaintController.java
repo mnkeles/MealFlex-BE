@@ -12,7 +12,7 @@ import com.mealflex.complaint.repository.ComplaintRepository;
 import com.mealflex.complaint.service.ComplaintAttachmentService;
 import com.mealflex.complaint.service.ComplaintStatusPolicy;
 import com.mealflex.notification.entity.Notification;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.payment.repository.PaymentRepository;
 import com.mealflex.security.UserPrincipal;
 import jakarta.validation.Valid;
@@ -32,7 +32,7 @@ import java.util.*;
 public class AdminComplaintController {
     private final ComplaintRepository complaintRepository;
     private final PaymentRepository paymentRepository;
-    private final NotificationRepository notificationRepository;
+    private final NotificationEventService notificationEventService;
     private final AdminComplaintService adminComplaintService;
     private final ComplaintAttachmentService complaintAttachmentService;
     private final AdminActionSupport actions;
@@ -79,7 +79,7 @@ public class AdminComplaintController {
         String status = complaint.getStatus().name();
         String message = complaint.getAdminNote() != null && !complaint.getAdminNote().isBlank()
                 ? complaint.getAdminNote() : "Destek talebinizin durumu " + status + " olarak güncellendi.";
-        notificationRepository.save(Notification.builder().user(complaint.getCustomer())
+        notificationEventService.publish(Notification.builder().user(complaint.getCustomer())
                 .title("RESOLVED".equalsIgnoreCase(status) ? "Destek Talebiniz Çözüldü" : "Destek Talebiniz Güncellendi")
                 .message(message).referenceType(complaint.getSubscription() == null ? "COMPLAINT" : "SUBSCRIPTION")
                 .referenceId(complaint.getSubscription() == null ? complaint.getId() : complaint.getSubscription().getId()).build());

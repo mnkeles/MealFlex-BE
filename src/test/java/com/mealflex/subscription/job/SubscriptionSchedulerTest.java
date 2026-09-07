@@ -4,7 +4,7 @@ import com.mealflex.audit.repository.AuditLogRepository;
 import com.mealflex.delivery.entity.DeliveryStatus;
 import com.mealflex.delivery.entity.SubscriptionDelivery;
 import com.mealflex.delivery.repository.SubscriptionDeliveryRepository;
-import com.mealflex.notification.repository.NotificationRepository;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.subscription.entity.Subscription;
 import com.mealflex.subscription.entity.SubscriptionStatus;
 import com.mealflex.subscription.repository.SubscriptionRepository;
@@ -41,7 +41,7 @@ class SubscriptionSchedulerTest {
     }
 
     @Mock private SubscriptionRepository subscriptionRepository;
-    @Mock private NotificationRepository notificationRepository;
+    @Mock private NotificationEventService notificationEventService;
     @Mock private SubscriptionDeliveryRepository deliveryRepository;
     @Mock private AuditLogRepository auditLogRepository;
     @Mock private SubscriptionEventStream eventStream;
@@ -97,7 +97,7 @@ class SubscriptionSchedulerTest {
         assertThat(subscription.getStatus()).isEqualTo(SubscriptionStatus.COMPLETED);
         assertThat(subscription.getCompletedAt()).isNotNull();
         verify(auditLogRepository).save(any());
-        verify(notificationRepository).save(org.mockito.ArgumentMatchers.argThat(notification ->
+        verify(notificationEventService).publish(org.mockito.ArgumentMatchers.argThat(notification ->
                 notification.getTitle().equals("Aboneliğiniz Tamamlandı")
                         && notification.getReferenceType().equals("SUBSCRIPTION")
                         && notification.getReferenceId().equals(50L)));
