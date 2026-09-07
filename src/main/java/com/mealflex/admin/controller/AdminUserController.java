@@ -2,6 +2,8 @@ package com.mealflex.admin.controller;
 
 import com.mealflex.address.repository.AddressRepository;
 import com.mealflex.admin.service.AdminActionSupport;
+import com.mealflex.admin.dto.AdminUserResponse;
+import com.mealflex.admin.dto.AdminComplaintResponse;
 import com.mealflex.audit.entity.AuditLog;
 import com.mealflex.audit.repository.AuditLogRepository;
 import com.mealflex.common.exception.BusinessException;
@@ -42,7 +44,7 @@ public class AdminUserController {
 
     @GetMapping
     @Operation(summary = "Kullanıcıları listele")
-    public ResponseEntity<Page<User>> getUsers(@RequestParam(required = false) String role,
+    public ResponseEntity<Page<AdminUserResponse>> getUsers(@RequestParam(required = false) String role,
             @RequestParam(required = false) String search, Pageable pageable) {
         Role roleFilter = null;
         if (role != null && !role.isBlank()) {
@@ -53,27 +55,41 @@ public class AdminUserController {
             }
         }
         String normalizedSearch = search == null || search.isBlank() ? null : search.trim();
-        return ResponseEntity.ok(userRepository.searchForAdmin(roleFilter, normalizedSearch, pageable));
+        return ResponseEntity.ok(userRepository.searchForAdmin(roleFilter, normalizedSearch, pageable)
+                .map(AdminUserResponse::from));
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "Kullanıcı detayı")
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getUserDetail(@PathVariable Long id) {
         User user = requireUser(id);
         Map<String, Object> detail = new HashMap<>();
-        detail.put("user", user);
-        detail.put("addresses", addressRepository.findByUserIdAndDeletedAtIsNull(id));
-        detail.put("subscriptions", subscriptionRepository.findByCustomerId(id, Pageable.unpaged()).getContent());
-        detail.put("complaints", complaintRepository.findByCustomerId(id, Pageable.unpaged()).getContent());
-        customerProfileRepository.findByUserId(id).ifPresent(value -> detail.put("customerProfile", value));
-        sellerProfileRepository.findByUserId(id).ifPresent(value -> detail.put("sellerProfile", value));
-        detail.put("audits", auditLogRepository.findAll().stream().filter(a -> id.equals(a.getEntityId()) && "USER".equals(a.getEntityType()))
-                .sorted(Comparator.comparing(AuditLog::getTimestamp).reversed()).limit(50).map(this::auditView).toList());
+        detail.put("user", AdminUserResponse.from(user));
+        detail.put("addresses", addressRepository.findByUserIdAndDeletedAtIsNull(id).stream().map(address -> Map.of(
+                "id", address.getId(), "title", address.getTitle(), "city", address.getCity(),
+                "district", address.getDistrict(), "fullAddress", address.getFullAddress())).toList());
+        detail.put("subscriptions", subscriptionRepository.findByCustomerId(id, Pageable.unpaged()).getContent().stream()
+                .map(subscription -> Map.of("id", subscription.getId(), "storeId", subscription.getStore().getId(),
+                        "status", subscription.getStatus().name(), "startDate", subscription.getStartDate(),
+                        "endDate", subscription.getEndDate(), "totalAmount", subscription.getTotalAmount(),
+                        "personCount", subscription.getPersonCount())).toList());
+        detail.put("complaints", complaintRepository.findByCustomerId(id, Pageable.unpaged()).getContent().stream()
+                .map(AdminComplaintResponse::from).toList());
+        customerProfileRepository.findByUserId(id).ifPresent(value -> detail.put("customerProfile", Map.of(
+                "companyName", nullable(value.getCompanyName()), "taxNumber", nullable(value.getTaxNumber()),
+                "taxOffice", nullable(value.getTaxOffice()), "invoiceAddress", nullable(value.getInvoiceAddress()))));
+        sellerProfileRepository.findByUserId(id).ifPresent(value -> detail.put("sellerProfile", Map.of(
+                "companyTitle", nullable(value.getCompanyTitle()), "taxNumber", nullable(value.getTaxNumber()),
+                "taxOffice", nullable(value.getTaxOffice()), "authorizedPerson", nullable(value.getAuthorizedPerson()),
+                "phone", nullable(value.getPhone()), "iban", nullable(value.getIban()))));
+        detail.put("audits", auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampAsc("USER", id).reversed().stream()
+                .limit(50).map(this::auditView).toList());
         return ResponseEntity.ok(detail);
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<User> updateUser(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
+    public ResponseEntity<AdminUserResponse> updateUser(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
             @RequestBody Map<String, Object> updates) {
         if (updates.containsKey("active")) throw new BusinessException("SENSITIVE_ACTION_REQUIRED", "Kullanıcı durumu için ikinci doğrulamalı işlem kullanın.");
         User user = requireUser(id);
@@ -82,30 +98,31 @@ public class AdminUserController {
         if (updates.containsKey("phone")) user.setPhone((String) updates.get("phone"));
         userRepository.save(user);
         actions.audit(principal.getId(), "ADMIN_USER_UPDATED", "USER", id, updates.toString());
-        return ResponseEntity.ok(user);
+        return ResponseEntity.ok(AdminUserResponse.from(user));
     }
 
     @PostMapping("/{id}/deactivate")
-    public ResponseEntity<User> deactivateUser(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
+    public ResponseEntity<AdminUserResponse> deactivateUser(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
             @RequestParam String reason, @RequestHeader(value="X-Reauth-Token", required=false) String reauthToken) {
         String normalized = actions.requireSensitiveAction(principal, reason, reauthToken);
         User user = requireUser(id); boolean previous = user.isActive();
         user.setActive(false); user.setAccountDeletedAt(Instant.now()); userRepository.save(user);
         actions.audit(principal.getId(), "ADMIN_USER_DEACTIVATED", "USER", id, "active=" + previous + " -> false; reason=" + normalized);
-        return ResponseEntity.ok(user);
+        return ResponseEntity.ok(AdminUserResponse.from(user));
     }
 
     @PostMapping("/{id}/activate")
-    public ResponseEntity<User> activateUser(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
+    public ResponseEntity<AdminUserResponse> activateUser(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
             @RequestParam String reason, @RequestHeader(value="X-Reauth-Token", required=false) String reauthToken) {
         String normalized = actions.requireSensitiveAction(principal, reason, reauthToken);
         User user = requireUser(id); boolean previous = user.isActive();
         user.setActive(true); user.setAccountDeletedAt(null); userRepository.save(user);
         actions.audit(principal.getId(), "ADMIN_USER_ACTIVATED", "USER", id, "active=" + previous + " -> true; reason=" + normalized);
-        return ResponseEntity.ok(user);
+        return ResponseEntity.ok(AdminUserResponse.from(user));
     }
 
     private User requireUser(Long id) { return userRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("Kullanıcı", id)); }
+    private String nullable(String value) { return value == null ? "" : value; }
     private Map<String, Object> auditView(AuditLog a) {
         return Map.of("id", a.getId(), "action", a.getAction(), "entityType", a.getEntityType(),
                 "actorId", a.getActorId() == null ? "SYSTEM" : a.getActorId().toString(),

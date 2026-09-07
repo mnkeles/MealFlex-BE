@@ -215,6 +215,22 @@ class DeliveryServiceTest {
     }
 
     @Test
+    void deliveryAttemptDetailsAndUploadedProofSurviveFinalDeliveryUpdate() {
+        SubscriptionDelivery delivery = ownedDelivery(DeliveryStatus.DELIVERY_ATTEMPTED);
+        when(delivery.getDeliveryCode()).thenReturn("1234");
+        when(deliveryRepository.save(delivery)).thenReturn(delivery);
+
+        deliveryService.updateStatus(99L, 5L, 20L,
+                request(DeliveryStatus.DELIVERED, "1234", null, "Resepsiyon"));
+
+        verify(delivery, never()).setProofPhotoUrl(null);
+        verify(delivery, never()).setFailureReason(null);
+        verify(delivery, never()).setDelayMinutes(null);
+        verify(delivery, never()).setEstimatedDeliveryAt(null);
+        verify(delivery).setStatus(DeliveryStatus.DELIVERED);
+    }
+
+    @Test
     void unsuccessfulAttemptRequiresReason() {
         ownedDelivery(DeliveryStatus.IN_TRANSIT);
 

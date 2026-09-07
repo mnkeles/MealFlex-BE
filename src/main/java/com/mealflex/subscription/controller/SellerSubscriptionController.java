@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -25,6 +26,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/v1/seller/subscriptions")
 @RequiredArgsConstructor
+@Validated
 @Tag(name = "Seller Subscriptions", description = "Satıcı abonelik yönetimi")
 public class SellerSubscriptionController {
 

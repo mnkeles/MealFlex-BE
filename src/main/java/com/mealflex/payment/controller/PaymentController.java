@@ -20,6 +20,7 @@ public class PaymentController {
     @DeleteMapping("/methods/{id}") public ResponseEntity<Void> deleteMethod(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id) { service.deleteMethod(principal.getId(), id); return ResponseEntity.noContent().build(); }
     @GetMapping("/history") public List<PaymentResponse> history(@AuthenticationPrincipal UserPrincipal principal) { return service.history(principal.getId()); }
     @GetMapping("/meal-balance") public MealBalanceResponse mealBalance(@AuthenticationPrincipal UserPrincipal principal) { return service.mealBalance(principal.getId()); }
+    @Deprecated(forRemoval = true)
     @GetMapping public List<PaymentResponse> historyAlias(@AuthenticationPrincipal UserPrincipal principal) { return service.history(principal.getId()); }
     @GetMapping("/{paymentId}") public PaymentResponse getPayment(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long paymentId) { return service.getPayment(principal.getId(), paymentId); }
     @PostMapping("/preview") public SubscriptionPaymentSummaryResponse preview(@AuthenticationPrincipal UserPrincipal principal, @Valid @RequestBody PaymentPreviewRequest request) { return service.summary(principal.getId(), request.subscriptionId()); }

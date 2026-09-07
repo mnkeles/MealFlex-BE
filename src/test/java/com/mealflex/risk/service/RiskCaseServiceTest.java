@@ -39,13 +39,10 @@ class RiskCaseServiceTest {
     @Test
     void scanCreatesReviewOnlySignalsForSharedTokenHighRefundAndExcessiveCoupons() {
         User first = user(1L); User second = user(2L);
-        PaymentMethod firstMethod = PaymentMethod.builder().customer(first).provider("IYZICO").providerToken("same-token").active(true).build();
-        PaymentMethod secondMethod = PaymentMethod.builder().customer(second).provider("IYZICO").providerToken("same-token").active(true).build();
         Payment payment = Payment.builder().grossAmount(new BigDecimal("100.00")).refundedAmount(new BigDecimal("50.00")).build(); payment.setId(40L);
-        CampaignRedemption coupon = CampaignRedemption.builder().customer(first).discountAmount(BigDecimal.TEN).build();
-        when(methods.findAll()).thenReturn(List.of(firstMethod, secondMethod));
-        when(payments.findAll()).thenReturn(List.of(payment));
-        when(redemptions.findAll()).thenReturn(List.of(coupon, coupon, coupon, coupon, coupon));
+        when(methods.findSharedActiveTokens()).thenReturn(List.<Object[]>of(new Object[]{"IYZICO", "same-token", 2L}));
+        when(payments.findHighRefundRatioPayments()).thenReturn(List.of(payment));
+        when(redemptions.findCustomersWithExcessiveUsage()).thenReturn(List.<Object[]>of(new Object[]{1L, 5L}));
         when(cases.findByRiskTypeAndReferenceTypeAndReferenceId(anyString(), anyString(), anyLong())).thenReturn(Optional.empty());
 
         service.scan();

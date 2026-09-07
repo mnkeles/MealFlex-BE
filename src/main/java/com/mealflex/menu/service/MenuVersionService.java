@@ -40,7 +40,7 @@ public class MenuVersionService {
             value.put("description", item.getDescription()); value.put("imageUrl", item.getImageUrl()); value.put("sortOrder", item.getSortOrder()); return value;
         }).toList());
         MenuVersion version = versionRepository.save(MenuVersion.builder().menu(menu).versionNumber(next)
-                .effectiveFrom(menu.getPriceEffectiveFrom() == null ? LocalDate.now() : menu.getPriceEffectiveFrom())
+                .effectiveFrom(menu.getPriceEffectiveFrom() == null ? com.mealflex.subscription.service.SubscriptionDatePolicy.today() : menu.getPriceEffectiveFrom())
                 .pricePerPerson(menu.getPricePerPerson()).snapshotJson(json(snapshot)).createdBy(userId).build());
         var schedules = scheduleRepository.findByMenuIdOrderByDayOfWeekAscSortOrderAsc(menu.getId()).stream().map(item ->
                 Map.of("dayOfWeek", (Object) item.getDayOfWeek().name(), "itemName", item.getItemName(), "sortOrder", item.getSortOrder())).toList();

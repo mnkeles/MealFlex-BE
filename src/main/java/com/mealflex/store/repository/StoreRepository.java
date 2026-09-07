@@ -32,8 +32,6 @@ public interface StoreRepository extends JpaRepository<Store, Long> {
             @Param("search") String search,
             Pageable pageable);
 
-    Optional<Store> findBySellerUserId(Long userId);
-
     Optional<Store> findByIdAndSellerUserIdAndDeletedAtIsNull(Long id, Long userId);
 
     List<Store> findAllBySellerUserIdAndDeletedAtIsNull(Long userId);

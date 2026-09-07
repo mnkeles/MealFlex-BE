@@ -46,7 +46,7 @@ public class AdminComplaintService {
             amount=request.getAmount(); if(amount==null||amount.signum()<=0) throw new BusinessException("INVALID_COUPON_AMOUNT","Kupon tutarı sıfırdan büyük olmalıdır.");
             code="TELAFI-"+complaintId+"-"+UUID.randomUUID().toString().substring(0,8).toUpperCase(Locale.ROOT);
             campaigns.save(Campaign.builder().store(complaint.getStore()).targetCustomer(complaint.getCustomer()).code(code).name("Şikâyet telafisi #"+complaintId)
-                    .campaignType("FIXED").discountValue(amount).maxUsesPerCustomer(1).startDate(LocalDate.now()).endDate(LocalDate.now().plusDays(90))
+                    .campaignType("FIXED").discountValue(amount).maxUsesPerCustomer(1).startDate(com.mealflex.subscription.service.SubscriptionDatePolicy.today()).endDate(com.mealflex.subscription.service.SubscriptionDatePolicy.today().plusDays(90))
                     .sellerShareRate(BigDecimal.ZERO).platformShareRate(BigDecimal.ONE).build());
         } else if("MAKEUP_DELIVERY".equals(type)) {
             if(complaint.getDelivery()==null||request.getCompensationDate()==null) throw new BusinessException("COMPENSATION_DELIVERY_REQUIRED","Telafi teslimatı ve tarihi zorunludur.");

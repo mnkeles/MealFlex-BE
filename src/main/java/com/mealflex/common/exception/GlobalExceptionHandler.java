@@ -7,6 +7,10 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
@@ -86,6 +90,36 @@ public class GlobalExceptionHandler {
                 .timestamp(Instant.now())
                 .build();
         return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(error);
+    }
+
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ApiError> handleMissingHeader(MissingRequestHeaderException ex) {
+        return badRequest("MISSING_REQUEST_HEADER", "Zorunlu istek başlığı eksik: " + ex.getHeaderName() + ".");
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiError> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        return badRequest("INVALID_PARAMETER", "'" + ex.getName() + "' parametresi geçersiz.");
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiError> handleUnreadableMessage(HttpMessageNotReadableException ex) {
+        return badRequest("INVALID_REQUEST_BODY", "İstek gövdesi okunamadı veya geçersiz bir değer içeriyor.");
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ApiError> handleConstraintViolation(ConstraintViolationException ex) {
+        return badRequest("VALIDATION_ERROR", "İstek parametreleri doğrulama kurallarını karşılamıyor.");
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException ex) {
+        return badRequest("INVALID_ARGUMENT", "İstek geçersiz bir değer içeriyor.");
+    }
+
+    private ResponseEntity<ApiError> badRequest(String code, String message) {
+        return ResponseEntity.badRequest().body(ApiError.builder()
+                .code(code).message(message).timestamp(Instant.now()).build());
     }
 
     @ExceptionHandler(Exception.class)

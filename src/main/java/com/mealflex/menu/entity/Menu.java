@@ -34,7 +34,7 @@ public class Menu extends BaseEntity {
 
     @Column(nullable = false)
     @Builder.Default
-    private LocalDate priceEffectiveFrom = LocalDate.now();
+    private LocalDate priceEffectiveFrom = com.mealflex.subscription.service.SubscriptionDatePolicy.today();
 
     @Column
     private String imageUrl;

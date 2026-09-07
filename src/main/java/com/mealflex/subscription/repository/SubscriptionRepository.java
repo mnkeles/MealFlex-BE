@@ -78,5 +78,9 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
 
     List<Subscription> findByStatusInAndApprovalDeadlineAtBefore(List<SubscriptionStatus> statuses, java.time.Instant deadline);
 
+    long countByStatus(SubscriptionStatus status);
+
+    List<Subscription> findTop20ByStatusOrderByCreatedAtAsc(SubscriptionStatus status);
+
     List<Subscription> findByStoreIdAndStatusIn(Long storeId, List<SubscriptionStatus> statuses);
 }

@@ -27,5 +27,9 @@ logging:
     org.hibernate.SQL: DEBUG
 
 app:
+  jwt:
+    secret: ${JWT_SECRET:mealflex-dev-secret-key-change-in-production-minimum-256-bits-long-key}
+  payment:
+    webhook-secret: ${PAYMENT_WEBHOOK_SECRET:mealflex-local-webhook-secret}
   verification:
     expose-code: true

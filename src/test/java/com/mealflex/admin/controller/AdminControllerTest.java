@@ -23,6 +23,7 @@ import com.mealflex.store.entity.Store;
 import com.mealflex.store.repository.ServiceAreaRepository;
 import com.mealflex.store.repository.StoreRepository;
 import com.mealflex.subscription.repository.SubscriptionRepository;
+import com.mealflex.subscription.entity.SubscriptionStatus;
 import com.mealflex.user.entity.Role;
 import com.mealflex.user.entity.User;
 import com.mealflex.user.repository.UserRepository;
@@ -75,12 +76,15 @@ class AdminControllerTest {
         Store store = Store.builder().name("Ankara Mutfak").build(); store.setId(5L);
         SubscriptionDelivery delivery = org.mockito.Mockito.mock(SubscriptionDelivery.class, org.mockito.Answers.RETURNS_DEEP_STUBS);
         when(delivery.getId()).thenReturn(10L); when(delivery.getDeliveryDate()).thenReturn(LocalDate.now()); when(delivery.getStatus()).thenReturn(DeliveryStatus.IN_TRANSIT);
-        when(delivery.getDelayMinutes()).thenReturn(30); when(delivery.getSubscription().getStore().getId()).thenReturn(5L); when(delivery.getSubscription().getStore().getName()).thenReturn("Ankara Mutfak");
+        when(delivery.getDelayMinutes()).thenReturn(30); when(delivery.getSubscription().getStore().getName()).thenReturn("Ankara Mutfak");
         Payment payment = org.mockito.Mockito.mock(Payment.class, org.mockito.Answers.RETURNS_DEEP_STUBS);
-        when(payment.getId()).thenReturn(20L); when(payment.getCreatedAt()).thenReturn(Instant.now()); when(payment.getStatus()).thenReturn(PaymentStatus.FAILED); when(payment.getStore().getId()).thenReturn(5L); when(payment.getStore().getName()).thenReturn("Ankara Mutfak");
+        when(payment.getId()).thenReturn(20L); when(payment.getStatus()).thenReturn(PaymentStatus.FAILED); when(payment.getStore().getName()).thenReturn("Ankara Mutfak");
         Complaint complaint = Complaint.builder().store(store).status(ComplaintStatus.OPEN).build(); complaint.setId(30L); complaint.setCreatedAt(Instant.now().minusSeconds(25 * 3600));
-        when(deliveryRepository.findAll()).thenReturn(List.of(delivery)); when(paymentRepository.findAll()).thenReturn(List.of(payment)); when(complaintRepository.findAll()).thenReturn(List.of(complaint));
-        when(subscriptionRepository.findByStatusInAndApprovalDeadlineAtBefore(anyList(), any())).thenReturn(List.of());
+        when(deliveryRepository.findForAdminOperations(any(), any(), eq(5L))).thenReturn(List.of(delivery));
+        when(paymentRepository.findForAdminOperations(any(), any(), eq(5L))).thenReturn(List.of(payment));
+        when(complaintRepository.findForAdminOperations(any(), any(), eq(5L))).thenReturn(List.of(complaint));
+        when(subscriptionRepository.findTop20ByStatusOrderByCreatedAtAsc(SubscriptionStatus.PENDING_APPROVAL)).thenReturn(List.of());
+        when(subscriptionRepository.countByStatus(SubscriptionStatus.PENDING_APPROVAL)).thenReturn(0L);
 
         var result = operationsController.operationsSummary(LocalDate.now().minusDays(1), LocalDate.now(), 5L);
 
@@ -160,12 +164,13 @@ class AdminControllerTest {
         var pending = org.mockito.Mockito.mock(com.mealflex.subscription.entity.Subscription.class, org.mockito.Answers.RETURNS_DEEP_STUBS);
         when(pending.getId()).thenReturn(44L);
         when(pending.getStore().getName()).thenReturn("Test Mutfağı");
-        when(subscriptionRepository.findByStatusInAndApprovalDeadlineAtBefore(anyList(), any())).thenReturn(List.of(pending));
+        when(subscriptionRepository.findTop20ByStatusOrderByCreatedAtAsc(SubscriptionStatus.PENDING_APPROVAL)).thenReturn(List.of(pending));
+        when(subscriptionRepository.countByStatus(SubscriptionStatus.PENDING_APPROVAL)).thenReturn(1L);
         when(riskCaseRepository.countByStatus("OPEN")).thenReturn(2L);
         when(riskCaseRepository.findTop20ByStatusOrderByCreatedAtDesc("OPEN")).thenReturn(List.of());
-        when(deliveryRepository.findAll()).thenReturn(List.of());
-        when(paymentRepository.findAll()).thenReturn(List.of());
-        when(complaintRepository.findAll()).thenReturn(List.of());
+        when(deliveryRepository.findForAdminOperations(any(), any(), isNull())).thenReturn(List.of());
+        when(paymentRepository.findForAdminOperations(any(), any(), isNull())).thenReturn(List.of());
+        when(complaintRepository.findForAdminOperations(any(), any(), isNull())).thenReturn(List.of());
 
         var result = operationsController.operationsSummary(LocalDate.now(), LocalDate.now(), null);
 

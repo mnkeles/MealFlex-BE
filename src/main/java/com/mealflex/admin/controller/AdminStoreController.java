@@ -1,6 +1,8 @@
 package com.mealflex.admin.controller;
 
 import com.mealflex.admin.service.AdminActionSupport;
+import com.mealflex.admin.dto.AdminStoreResponse;
+import com.mealflex.admin.dto.AdminComplaintResponse;
 import com.mealflex.audit.entity.AuditLog;
 import com.mealflex.audit.repository.AuditLogRepository;
 import com.mealflex.common.exception.BusinessException;
@@ -39,7 +41,8 @@ public class AdminStoreController {
     private final AdminActionSupport actions;
 
     @GetMapping
-    public ResponseEntity<Page<Store>> getStores(@RequestParam(required = false) String status,
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    public ResponseEntity<Page<AdminStoreResponse>> getStores(@RequestParam(required = false) String status,
             @RequestParam(required = false) String search, Pageable pageable) {
         StoreStatus statusFilter = null;
         if (status != null && !status.isBlank()) {
@@ -50,22 +53,30 @@ public class AdminStoreController {
             }
         }
         String normalizedSearch = search == null || search.isBlank() ? null : search.trim();
-        return ResponseEntity.ok(storeRepository.searchForAdmin(statusFilter, normalizedSearch, pageable));
+        return ResponseEntity.ok(storeRepository.searchForAdmin(statusFilter, normalizedSearch, pageable)
+                .map(AdminStoreResponse::from));
     }
 
     @GetMapping("/{id}")
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getStoreDetail(@PathVariable Long id) {
         Store store = requireStore(id); Map<String, Object> detail = new HashMap<>();
-        detail.put("store", store); detail.put("serviceAreas", serviceAreaRepository.findByStoreId(id));
-        detail.put("subscriptions", subscriptionRepository.findByStoreId(id, Pageable.unpaged()).getContent());
-        detail.put("complaints", complaintRepository.findByStoreId(id, Pageable.unpaged()).getContent());
-        detail.put("audits", auditLogRepository.findAll().stream().filter(a -> id.equals(a.getEntityId()) && "STORE".equals(a.getEntityType()))
-                .sorted(Comparator.comparing(AuditLog::getTimestamp).reversed()).limit(50).map(this::auditView).toList());
+        detail.put("store", AdminStoreResponse.from(store));
+        detail.put("serviceAreas", serviceAreaRepository.findByStoreId(id).stream().map(area -> Map.of(
+                "id", area.getId(), "city", area.getCity(), "district", area.getDistrict())).toList());
+        detail.put("subscriptions", subscriptionRepository.findByStoreId(id, Pageable.unpaged()).getContent().stream()
+                .map(subscription -> Map.of("id", subscription.getId(), "status", subscription.getStatus().name(),
+                        "startDate", subscription.getStartDate(), "endDate", subscription.getEndDate(),
+                        "totalAmount", subscription.getTotalAmount(), "personCount", subscription.getPersonCount())).toList());
+        detail.put("complaints", complaintRepository.findByStoreId(id, Pageable.unpaged()).getContent().stream()
+                .map(AdminComplaintResponse::from).toList());
+        detail.put("audits", auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampAsc("STORE", id).reversed().stream()
+                .limit(50).map(this::auditView).toList());
         return ResponseEntity.ok(detail);
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Store> updateStore(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
+    public ResponseEntity<AdminStoreResponse> updateStore(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
             @RequestBody Map<String, Object> updates) {
         if (updates.containsKey("status")) throw new BusinessException("SENSITIVE_ACTION_REQUIRED", "Mağaza durumu için ikinci doğrulamalı işlem kullanın.");
         Store store = requireStore(id);
@@ -74,11 +85,11 @@ public class AdminStoreController {
         if (updates.containsKey("minPersonCount")) store.setMinPersonCount((Integer) updates.get("minPersonCount"));
         if (updates.containsKey("maxPersonCount")) store.setMaxPersonCount((Integer) updates.get("maxPersonCount"));
         storeRepository.save(store); actions.audit(principal.getId(), "ADMIN_STORE_UPDATED", "STORE", id, updates.toString());
-        return ResponseEntity.ok(store);
+        return ResponseEntity.ok(AdminStoreResponse.from(store));
     }
 
     @PostMapping("/{id}/approve")
-    public ResponseEntity<Store> approveStore(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
+    public ResponseEntity<AdminStoreResponse> approveStore(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
             @RequestParam String reason, @RequestHeader(value="X-Reauth-Token", required=false) String reauthToken) {
         String normalized = actions.requireSensitiveAction(principal, reason, reauthToken); Store store = requireStore(id);
         var eligibility = sellerDocumentService.publicationEligibility(id);
@@ -86,20 +97,20 @@ public class AdminStoreController {
         return transition(principal, store, StoreStatus.ACTIVE, "ADMIN_STORE_APPROVED", normalized);
     }
     @PostMapping("/{id}/suspend")
-    public ResponseEntity<Store> suspendStore(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
+    public ResponseEntity<AdminStoreResponse> suspendStore(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
             @RequestParam String reason, @RequestHeader(value="X-Reauth-Token", required=false) String reauthToken) {
         return transition(principal, requireStore(id), StoreStatus.SUSPENDED, "ADMIN_STORE_SUSPENDED", actions.requireSensitiveAction(principal, reason, reauthToken));
     }
     @PostMapping("/{id}/reject")
-    public ResponseEntity<Store> rejectStore(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
+    public ResponseEntity<AdminStoreResponse> rejectStore(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
             @RequestParam String reason, @RequestHeader(value="X-Reauth-Token", required=false) String reauthToken) {
         return transition(principal, requireStore(id), StoreStatus.REJECTED, "ADMIN_STORE_REJECTED", actions.requireSensitiveAction(principal, reason, reauthToken));
     }
 
-    private ResponseEntity<Store> transition(UserPrincipal principal, Store store, StoreStatus status, String action, String reason) {
+    private ResponseEntity<AdminStoreResponse> transition(UserPrincipal principal, Store store, StoreStatus status, String action, String reason) {
         StoreStatus previous = store.getStatus(); store.setStatus(status); storeRepository.save(store);
         actions.audit(principal.getId(), action, "STORE", store.getId(), "status=" + previous + " -> " + status + "; reason=" + reason);
-        return ResponseEntity.ok(store);
+        return ResponseEntity.ok(AdminStoreResponse.from(store));
     }
     private Store requireStore(Long id) { return storeRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("Mağaza", id)); }
     private Map<String, Object> auditView(AuditLog a) {

@@ -25,13 +25,6 @@ public class SellerStoreController {
     private final StoreService storeService;
     private final StoreMediaService storeMediaService;
 
-    @GetMapping("/store")
-    @Operation(summary = "Mağazamı görüntüle (eski - tek mağaza)")
-    public ResponseEntity<StoreResponse> getMyStore(
-            @AuthenticationPrincipal UserPrincipal principal) {
-        return ResponseEntity.ok(storeService.getMyStore(principal.getId()));
-    }
-
     @GetMapping("/stores")
     @Operation(summary = "Mağazalarımı listele")
     public ResponseEntity<List<StoreResponse>> getMyStores(
@@ -42,15 +35,6 @@ public class SellerStoreController {
     @PostMapping("/stores")
     @Operation(summary = "Mağaza oluştur")
     public ResponseEntity<StoreResponse> createStore(
-            @AuthenticationPrincipal UserPrincipal principal,
-            @Valid @RequestBody CreateStoreRequest request) {
-        StoreResponse response = storeService.createStore(principal.getId(), request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
-    }
-
-    @PostMapping("/store")
-    @Operation(summary = "Mağaza oluştur (eski)")
-    public ResponseEntity<StoreResponse> createStoreLegacy(
             @AuthenticationPrincipal UserPrincipal principal,
             @Valid @RequestBody CreateStoreRequest request) {
         StoreResponse response = storeService.createStore(principal.getId(), request);
@@ -74,14 +58,6 @@ public class SellerStoreController {
         return ResponseEntity.ok(storeService.updateStoreById(principal.getId(), storeId, request));
     }
 
-    @PutMapping("/store")
-    @Operation(summary = "Mağaza güncelle (eski)")
-    public ResponseEntity<StoreResponse> updateStoreLegacy(
-            @AuthenticationPrincipal UserPrincipal principal,
-            @Valid @RequestBody CreateStoreRequest request) {
-        return ResponseEntity.ok(storeService.updateStore(principal.getId(), request));
-    }
-
     @PutMapping("/stores/{storeId}/business-hours")
     @Operation(summary = "Çalışma saatlerini ayarla")
     public ResponseEntity<List<BusinessHourResponse>> setBusinessHours(
@@ -91,14 +67,6 @@ public class SellerStoreController {
         return ResponseEntity.ok(storeService.setBusinessHoursForStore(principal.getId(), storeId, requests));
     }
 
-    @PutMapping("/store/business-hours")
-    @Operation(summary = "Çalışma saatlerini ayarla (eski)")
-    public ResponseEntity<List<BusinessHourResponse>> setBusinessHoursLegacy(
-            @AuthenticationPrincipal UserPrincipal principal,
-            @Valid @RequestBody List<BusinessHourRequest> requests) {
-        return ResponseEntity.ok(storeService.setBusinessHours(principal.getId(), requests));
-    }
-
     @PostMapping("/stores/{storeId}/service-areas")
     @Operation(summary = "Hizmet bölgesi ekle")
     public ResponseEntity<Void> addServiceArea(
@@ -106,15 +74,6 @@ public class SellerStoreController {
             @PathVariable Long storeId,
             @Valid @RequestBody ServiceAreaRequest request) {
         storeService.addServiceAreaForStore(principal.getId(), storeId, request);
-        return ResponseEntity.status(HttpStatus.CREATED).build();
-    }
-
-    @PostMapping("/store/service-areas")
-    @Operation(summary = "Hizmet bölgesi ekle (eski)")
-    public ResponseEntity<Void> addServiceAreaLegacy(
-            @AuthenticationPrincipal UserPrincipal principal,
-            @Valid @RequestBody ServiceAreaRequest request) {
-        storeService.addServiceArea(principal.getId(), request);
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 

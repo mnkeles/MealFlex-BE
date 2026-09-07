@@ -101,6 +101,7 @@ public class SubscriptionController {
     }
 
     @PostMapping("/{id}/skip-delivery")
+    @Deprecated(forRemoval = true)
     @Operation(summary = "Teslimat ID'siyle gün atlama için uyumluluk endpoint'i")
     public ResponseEntity<DeliveryChangeResponse> skipDeliveryAlias(@AuthenticationPrincipal UserPrincipal principal,
             @PathVariable Long id, @RequestParam Long deliveryId,
@@ -116,6 +117,7 @@ public class SubscriptionController {
     }
 
     @PostMapping("/{id}/pause")
+    @Deprecated(forRemoval = true)
     @Operation(summary = "Aboneliği dondur için uyumluluk endpoint'i")
     public ResponseEntity<DeliveryChangeResponse> pause(@AuthenticationPrincipal UserPrincipal principal,
             @PathVariable Long id, @Valid @RequestBody FreezeSubscriptionRequest request) {
@@ -150,6 +152,7 @@ public class SubscriptionController {
     }
 
     @PostMapping("/{id}/change-preview")
+    @Deprecated(forRemoval = true)
     @Operation(summary = "Teslimat ID'siyle abonelik değişikliği önizlemesi")
     public ResponseEntity<DeliveryModificationResponse> previewChangeAlias(@AuthenticationPrincipal UserPrincipal principal,
             @PathVariable Long id, @RequestParam Long deliveryId, @Valid @RequestBody ModifyDeliveryRequest request) {
@@ -157,6 +160,7 @@ public class SubscriptionController {
     }
 
     @PostMapping("/{id}/change")
+    @Deprecated(forRemoval = true)
     @Operation(summary = "Teslimat ID'siyle değişiklik onay talebi oluştur")
     public ResponseEntity<DeliveryModificationRequestResponse> changeAlias(@AuthenticationPrincipal UserPrincipal principal,
             @PathVariable Long id, @RequestParam Long deliveryId, @Valid @RequestBody ModifyDeliveryRequest request) {

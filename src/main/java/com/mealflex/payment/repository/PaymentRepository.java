@@ -5,6 +5,12 @@ import org.springframework.data.repository.query.Param;
 import java.time.Instant;
 import java.util.*;
 public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpecificationExecutor<Payment> {
+    @Query("SELECT p FROM Payment p JOIN FETCH p.store st WHERE p.createdAt >= :startedAt "
+            + "AND p.createdAt < :endedAt AND (:storeId IS NULL OR st.id = :storeId)")
+    List<Payment> findForAdminOperations(@Param("startedAt") Instant startedAt,
+            @Param("endedAt") Instant endedAt, @Param("storeId") Long storeId);
+    @Query("SELECT p FROM Payment p WHERE p.grossAmount > 0 AND p.refundedAmount * 2 >= p.grossAmount")
+    List<Payment> findHighRefundRatioPayments();
     @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Payment p where p.id = :id")
     Optional<Payment> findByIdForUpdate(@Param("id") Long id);

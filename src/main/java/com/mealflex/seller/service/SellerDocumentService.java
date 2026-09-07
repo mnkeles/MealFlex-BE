@@ -127,9 +127,7 @@ public class SellerDocumentService {
 
     @Transactional(readOnly = true)
     public java.util.List<java.util.Map<String, Object>> getReviewHistory(Long documentId) {
-        return auditLogRepository.findAll().stream()
-                .filter(a -> documentId.equals(a.getEntityId()) && "SELLER_DOCUMENT".equals(a.getEntityType()))
-                .sorted(java.util.Comparator.comparing(AuditLog::getTimestamp).reversed())
+        return auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampAsc("SELLER_DOCUMENT", documentId).reversed().stream()
                 .map(a -> {
                     java.util.Map<String, Object> map = new java.util.HashMap<>();
                     map.put("id", a.getId());
@@ -172,9 +170,10 @@ public class SellerDocumentService {
 
     private StoreOnboardingResponse onboardingResponse(Long storeId) {
         List<SellerDocument> documents = documentRepository.findByStoreId(storeId); Set<String> verified = new HashSet<>(); List<String> expiring = new ArrayList<>();
+        LocalDate today = com.mealflex.subscription.service.SubscriptionDatePolicy.today();
         for (SellerDocument d : documents) {
-            if ("VERIFIED".equals(d.getVerificationStatus()) && (d.getExpiryDate() == null || !d.getExpiryDate().isBefore(LocalDate.now()))) verified.add(d.getDocumentType());
-            if (d.getExpiryDate() != null && !d.getExpiryDate().isBefore(LocalDate.now()) && !d.getExpiryDate().isAfter(LocalDate.now().plusDays(30))) expiring.add(d.getDocumentType());
+            if ("VERIFIED".equals(d.getVerificationStatus()) && (d.getExpiryDate() == null || !d.getExpiryDate().isBefore(today))) verified.add(d.getDocumentType());
+            if (d.getExpiryDate() != null && !d.getExpiryDate().isBefore(today) && !d.getExpiryDate().isAfter(today.plusDays(30))) expiring.add(d.getDocumentType());
         }
         List<String> missing = REQUIRED_TYPES.stream().filter(type -> !verified.contains(type)).sorted().toList(); StoreOnboarding onboarding = onboardingRepository.findByStoreId(storeId).orElse(null);
         boolean contract = onboarding != null && onboarding.getContractAcceptedAt() != null; boolean ready = contract && missing.isEmpty();
@@ -192,14 +191,19 @@ public class SellerDocumentService {
         if (name.matches(".*\\.(exe|bat|cmd|js|jar|zip|rar)$")) throw new BusinessException("UNSAFE_DOCUMENT", "Çalıştırılabilir veya arşiv dosyaları kabul edilmez.");
     }
     private String sanitizeFileName(String name) { return name == null ? "belge" : name.replaceAll("[^a-zA-Z0-9._-]", "_"); }
-    private DocumentResponse toResponse(SellerDocument d) { return DocumentResponse.builder().id(d.getId()).documentType(d.getDocumentType()).fileName(d.getFileName()).fileUrl(d.getFileUrl()).expiryDate(d.getExpiryDate()).verified(d.isVerified()).verificationStatus(d.getVerificationStatus()).rejectionReason(d.getRejectionReason()).fileSize(d.getFileSize()).contentType(d.getContentType()).build(); }
+    private DocumentResponse toResponse(SellerDocument d) { String status=displayStatus(d);return DocumentResponse.builder().id(d.getId()).documentType(d.getDocumentType()).fileName(d.getFileName()).fileUrl(d.getFileUrl()).expiryDate(d.getExpiryDate()).verified("VERIFIED".equals(status)).verificationStatus(status).rejectionReason(d.getRejectionReason()).fileSize(d.getFileSize()).contentType(d.getContentType()).build(); }
     private AdminSellerDocumentResponse toAdminResponse(SellerDocument d) {
         StoreOnboardingResponse onboarding = onboardingResponse(d.getStore().getId());
         return AdminSellerDocumentResponse.builder().id(d.getId()).storeId(d.getStore().getId()).storeName(d.getStore().getName())
                 .documentType(d.getDocumentType()).fileName(d.getFileName()).fileUrl("/api/v1/admin/seller-documents/"+d.getId()+"/file")
-                .expiryDate(d.getExpiryDate()).verificationStatus(d.getVerificationStatus()).rejectionReason(d.getRejectionReason())
+                .expiryDate(d.getExpiryDate()).verificationStatus(displayStatus(d)).rejectionReason(d.getRejectionReason())
                 .fileSize(d.getFileSize()).contentType(d.getContentType()).contractAccepted(onboarding.isContractAccepted())
                 .readyForPublication(onboarding.isReadyForPublication()).missingDocumentTypes(onboarding.getMissingDocumentTypes())
                 .expiringDocumentTypes(onboarding.getExpiringDocumentTypes()).publicationBlockReason(onboarding.getPublicationBlockReason()).build();
+    }
+    private String displayStatus(SellerDocument document) {
+        return "VERIFIED".equals(document.getVerificationStatus()) && document.getExpiryDate() != null
+                && document.getExpiryDate().isBefore(com.mealflex.subscription.service.SubscriptionDatePolicy.today())
+                ? "EXPIRED" : document.getVerificationStatus();
     }
 }

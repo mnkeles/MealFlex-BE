@@ -25,7 +25,7 @@ public class SellerPayoutService {
     /** Eski toplu haftalık ödeme planı, teslimat sonrası aktarım kuralıyla devre dışıdır. */
     @Transactional
     public void preparePreviousWeek() {
-        LocalDate today = LocalDate.now(ZoneId.of("Europe/Istanbul"));
+        LocalDate today = com.mealflex.subscription.service.SubscriptionDatePolicy.today();
         LocalDate end = today.with(TemporalAdjusters.previous(DayOfWeek.SUNDAY)); LocalDate start = end.minusDays(6);
         storeRepository.findAll().forEach(store -> {
             if (payoutRepository.existsByStoreIdAndPeriodStartAndPeriodEnd(store.getId(), start, end)) return;

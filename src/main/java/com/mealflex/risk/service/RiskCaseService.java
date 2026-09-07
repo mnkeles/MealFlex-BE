@@ -25,15 +25,24 @@ import java.util.*;
 public class RiskCaseService {
  private final RiskCaseRepository cases; private final PaymentRepository payments; private final PaymentMethodRepository methods; private final CampaignRedemptionRepository redemptions; private final AuditLogRepository audits; private final UserRepository users;
     @Scheduled(cron="0 15 4 * * *", zone="Europe/Istanbul") @Transactional public void scanNightly(){scan();}
-    @Transactional public List<RiskCase> listAndScan(){scan();return cases.findTop100ByOrderByCreatedAtDesc();}
+    @Transactional(readOnly=true) public List<RiskCase> list(){return cases.findTop100ByOrderByCreatedAtDesc();}
+    @Transactional public int scanNow(){scan();return cases.findTop100ByOrderByCreatedAtDesc().size();}
     @Transactional public void scan(){
-        Map<String, Set<Long>> tokenCustomers=new HashMap<>();
-        for(PaymentMethod m:methods.findAll()) if(m.isActive()) tokenCustomers.computeIfAbsent(m.getProvider()+":"+m.getProviderToken(),k->new HashSet<>()).add(m.getCustomer().getId());
-        tokenCustomers.forEach((token,customers)->{if(customers.size()>1) upsert("SHARED_PAYMENT_TOKEN","PAYMENT_TOKEN",hashId(token),"HIGH","Aynı ödeme tokenı "+customers.size()+" farklı müşteri hesabında göründü.");});
-        for(Payment p:payments.findAll()) if(p.getGrossAmount()!=null&&p.getGrossAmount().signum()>0&&p.getRefundedAmount()!=null&&p.getRefundedAmount().divide(p.getGrossAmount(),4,java.math.RoundingMode.HALF_UP).compareTo(new BigDecimal("0.50"))>=0) upsert("HIGH_REFUND_RATIO","PAYMENT",p.getId(),"MEDIUM","Ödeme tutarının yüzde 50 veya fazlası iade edildi.");
-        Map<Long, Long> couponUses = new HashMap<>();
-        redemptions.findAll().forEach(redemption -> couponUses.merge(redemption.getCustomer().getId(), 1L, Long::sum));
-        couponUses.forEach((customerId, uses) -> { if (uses >= 5) upsert("EXCESSIVE_COUPON_USAGE", "CUSTOMER", customerId, "MEDIUM", "Müşteri hesabında " + uses + " kupon kullanımı tespit edildi."); });
+        methods.findSharedActiveTokens().forEach(row -> {
+            String token = row[0] + ":" + row[1];
+            long customers = ((Number) row[2]).longValue();
+            upsert("SHARED_PAYMENT_TOKEN", "PAYMENT_TOKEN", hashId(token), "HIGH",
+                    "Aynı ödeme tokenı " + customers + " farklı müşteri hesabında göründü.");
+        });
+        payments.findHighRefundRatioPayments().forEach(payment ->
+                upsert("HIGH_REFUND_RATIO", "PAYMENT", payment.getId(), "MEDIUM",
+                        "Ödeme tutarının yüzde 50 veya fazlası iade edildi."));
+        redemptions.findCustomersWithExcessiveUsage().forEach(row -> {
+            Long customerId = ((Number) row[0]).longValue();
+            long uses = ((Number) row[1]).longValue();
+            upsert("EXCESSIVE_COUPON_USAGE", "CUSTOMER", customerId, "MEDIUM",
+                    "Müşteri hesabında " + uses + " kupon kullanımı tespit edildi.");
+        });
     }
     @Transactional public RiskCase decide(Long adminId,Long id,String decision,String note){
         if(!Set.of("ACKNOWLEDGED","DISMISSED","REOPENED").contains(decision))throw new BusinessException("INVALID_RISK_DECISION","Risk kararı ACKNOWLEDGED, DISMISSED veya REOPENED olmalıdır.");

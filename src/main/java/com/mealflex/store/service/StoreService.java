@@ -134,12 +134,6 @@ public class StoreService {
         return toResponse(getStoreForSeller(userId, storeId));
     }
 
-    public StoreResponse getMyStore(Long userId) {
-        Store store = storeRepository.findBySellerUserId(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("Mağaza", "Satıcıya ait mağaza bulunamadı"));
-        return toResponse(store);
-    }
-
     public List<StoreResponse> getMyStores(Long userId) {
         return storeRepository.findAllBySellerUserIdAndDeletedAtIsNull(userId).stream()
                 .map(this::toResponse)
@@ -217,33 +211,8 @@ public class StoreService {
     }
 
     @Transactional
-    public StoreResponse updateStore(Long userId, CreateStoreRequest request) {
-        Store store = storeRepository.findBySellerUserId(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("Mağaza", "Satıcıya ait mağaza bulunamadı"));
-
-        store.setName(request.getName());
-        store.setDescription(request.getDescription());
-        store.setMaxPersonCount(request.getMaxPersonCount());
-        store.setDailyCapacity(request.getDailyCapacity());
-        if (request.getChangeCutoffHours() != null) store.setChangeCutoffHours(request.getChangeCutoffHours());
-        applyAddress(store, request);
-        if (request.getCategories() != null) store.setCategories(validateLabels(request.getCategories(), STORE_CATEGORIES, "İşletme kategorisi"));
-
-        store = storeRepository.save(store);
-        return toResponse(store);
-    }
-
-    @Transactional
     public List<BusinessHourResponse> setBusinessHoursForStore(Long userId, Long storeId, List<BusinessHourRequest> requests) {
         Store store = getStoreForSeller(userId, storeId);
-        return saveBusinessHours(store, requests);
-    }
-
-    @Transactional
-    public List<BusinessHourResponse> setBusinessHours(Long userId, List<BusinessHourRequest> requests) {
-        Store store = storeRepository.findBySellerUserId(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("Mağaza", "Satıcıya ait mağaza bulunamadı"));
-
         return saveBusinessHours(store, requests);
     }
 
@@ -267,7 +236,7 @@ public class StoreService {
 
         if (!newlyClosedDays.isEmpty()) {
             subscriptionServiceDayChangeService.applyClosedServiceDays(
-                    store.getId(), newlyClosedDays, serviceDayChangeEffectiveFrom(LocalDate.now(BUSINESS_TIME_ZONE)));
+                    store.getId(), newlyClosedDays, serviceDayChangeEffectiveFrom(com.mealflex.subscription.service.SubscriptionDatePolicy.today()));
         }
 
         return businessHourRepository.findByStoreIdOrderByDayOfWeek(store.getId()).stream()
@@ -296,19 +265,6 @@ public class StoreService {
     @Transactional
     public void addServiceAreaForStore(Long userId, Long storeId, ServiceAreaRequest request) {
         Store store = getStoreForSeller(userId, storeId);
-
-        ServiceArea area = ServiceArea.builder()
-                .store(store)
-                .city(request.getCity())
-                .district(request.getDistrict())
-                .build();
-        serviceAreaRepository.save(area);
-    }
-
-    @Transactional
-    public void addServiceArea(Long userId, ServiceAreaRequest request) {
-        Store store = storeRepository.findBySellerUserId(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("Mağaza", "Satıcıya ait mağaza bulunamadı"));
 
         ServiceArea area = ServiceArea.builder()
                 .store(store)
@@ -410,7 +366,7 @@ public class StoreService {
 
     public List<ClosedDateResponse> getClosedDates(Long storeId) {
         return closedDateRepository.findByStoreIdAndClosedDateBetween(storeId,
-                java.time.LocalDate.now().minusDays(30), java.time.LocalDate.now().plusYears(1)).stream()
+                com.mealflex.subscription.service.SubscriptionDatePolicy.today().minusDays(30), com.mealflex.subscription.service.SubscriptionDatePolicy.today().plusYears(1)).stream()
                 .map(cd -> new ClosedDateResponse(cd.getId(), cd.getClosedDate(), cd.getReason()))
                 .toList();
     }
@@ -418,7 +374,7 @@ public class StoreService {
     @Transactional
     public ClosedDateResponse addClosedDate(Long userId, Long storeId, java.time.LocalDate date, String reason) {
         Store store = getStoreForSeller(userId, storeId);
-        LocalDate earliestAllowedDate = LocalDate.now(BUSINESS_TIME_ZONE).plusDays(CLOSED_DATE_NOTICE_DAYS);
+        LocalDate earliestAllowedDate = com.mealflex.subscription.service.SubscriptionDatePolicy.today().plusDays(CLOSED_DATE_NOTICE_DAYS);
         if (date.isBefore(earliestAllowedDate)) {
             throw new BusinessException("CLOSED_DATE_NOTICE_REQUIRED",
                     "Kapalı gün en az 2 gün önceden tanımlanmalıdır.");
@@ -701,7 +657,7 @@ public class StoreService {
         List<StoreDeliverySlot> slots = deliverySlotRepository.findByStoreIdOrderByDeliveryTime(storeId);
         if (slots.isEmpty()) return null;
         List<BusinessHour> hours = businessHourRepository.findByStoreIdOrderByDayOfWeek(storeId);
-        LocalDate start = LocalDate.now(ZoneId.of("Europe/Istanbul")).plusDays(2);
+        LocalDate start = com.mealflex.subscription.service.SubscriptionDatePolicy.today().plusDays(2);
         Set<LocalDate> closedDates = closedDateRepository
                 .findByStoreIdAndClosedDateBetween(storeId, start, start.plusDays(59))
                 .stream().map(StoreClosedDate::getClosedDate).collect(java.util.stream.Collectors.toSet());

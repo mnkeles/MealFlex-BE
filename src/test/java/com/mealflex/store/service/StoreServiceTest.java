@@ -14,6 +14,7 @@ import com.mealflex.store.dto.DeliverySlotRequest;
 import com.mealflex.store.dto.ServiceAreaRequest;
 import com.mealflex.store.entity.BusinessHour;
 import com.mealflex.store.entity.Store;
+import com.mealflex.store.entity.StoreClosedDate;
 import com.mealflex.store.entity.StoreStatus;
 import com.mealflex.store.repository.*;
 import com.mealflex.user.repository.UserRepository;
@@ -55,6 +56,21 @@ class StoreServiceTest {
     @Mock private SellerDocumentService sellerDocumentService;
     @Mock private SubscriptionServiceDayChangeService subscriptionServiceDayChangeService;
     @InjectMocks private StoreService service;
+
+    @Test
+    void sellerCannotDeleteAnotherStoresClosedDate() {
+        Store selected = Store.builder().name("Seçili mağaza").build(); selected.setId(5L);
+        Store foreign = Store.builder().name("Başka mağaza").build(); foreign.setId(6L);
+        StoreClosedDate closedDate = StoreClosedDate.builder().store(foreign)
+                .closedDate(com.mealflex.subscription.service.SubscriptionDatePolicy.today().plusDays(3)).build();
+        closedDate.setId(8L);
+        when(storeRepository.findByIdAndSellerUserIdAndDeletedAtIsNull(5L, 99L)).thenReturn(Optional.of(selected));
+        when(closedDateRepository.findById(8L)).thenReturn(Optional.of(closedDate));
+
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> service.deleteClosedDate(99L, 5L, 8L)))
+                .isInstanceOf(com.mealflex.common.exception.ResourceNotFoundException.class);
+        verify(closedDateRepository, never()).delete(any());
+    }
 
     @Test
     void sellerCanCreateAddressedStoreAndTemporarilyCloseIt() {

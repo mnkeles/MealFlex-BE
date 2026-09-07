@@ -1,6 +1,7 @@
 package com.mealflex.admin.controller;
 
 import com.mealflex.admin.dto.ResolveComplaintRequest;
+import com.mealflex.admin.dto.AdminComplaintResponse;
 import com.mealflex.admin.service.AdminActionSupport;
 import com.mealflex.admin.service.AdminComplaintService;
 import com.mealflex.common.exception.ResourceNotFoundException;
@@ -9,6 +10,7 @@ import com.mealflex.complaint.entity.Complaint;
 import com.mealflex.complaint.entity.ComplaintStatus;
 import com.mealflex.complaint.repository.ComplaintRepository;
 import com.mealflex.complaint.service.ComplaintAttachmentService;
+import com.mealflex.complaint.service.ComplaintStatusPolicy;
 import com.mealflex.notification.entity.Notification;
 import com.mealflex.notification.repository.NotificationRepository;
 import com.mealflex.payment.repository.PaymentRepository;
@@ -36,7 +38,10 @@ public class AdminComplaintController {
     private final AdminActionSupport actions;
 
     @GetMapping
-    public ResponseEntity<?> getComplaints(Pageable pageable) { return ResponseEntity.ok(complaintRepository.findAll(pageable)); }
+    @Transactional(readOnly = true)
+    public ResponseEntity<org.springframework.data.domain.Page<AdminComplaintResponse>> getComplaints(Pageable pageable) {
+        return ResponseEntity.ok(complaintRepository.findAll(pageable).map(AdminComplaintResponse::from));
+    }
 
     @GetMapping("/{id}/context")
     @Transactional(readOnly = true)
@@ -60,10 +65,14 @@ public class AdminComplaintController {
 
     @PutMapping("/{id}")
     @Transactional
-    public ResponseEntity<Complaint> updateComplaint(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
+    public ResponseEntity<AdminComplaintResponse> updateComplaint(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
             @RequestBody Map<String, String> updates) {
         Complaint complaint = requireComplaint(id);
-        if (updates.containsKey("status")) complaint.setStatus(ComplaintStatus.valueOf(updates.get("status").trim().toUpperCase()));
+        if (updates.containsKey("status")) {
+            ComplaintStatus target = ComplaintStatusPolicy.parse(updates.get("status"));
+            ComplaintStatusPolicy.requireAdminTransition(complaint.getStatus(), target);
+            complaint.setStatus(target);
+        }
         if (updates.containsKey("adminNote")) complaint.setAdminNote(updates.get("adminNote"));
         complaintRepository.save(complaint);
         actions.audit(principal.getId(), "ADMIN_COMPLAINT_UPDATED", "COMPLAINT", id, updates.toString());
@@ -74,13 +83,14 @@ public class AdminComplaintController {
                 .title("RESOLVED".equalsIgnoreCase(status) ? "Destek Talebiniz Çözüldü" : "Destek Talebiniz Güncellendi")
                 .message(message).referenceType(complaint.getSubscription() == null ? "COMPLAINT" : "SUBSCRIPTION")
                 .referenceId(complaint.getSubscription() == null ? complaint.getId() : complaint.getSubscription().getId()).build());
-        return ResponseEntity.ok(complaint);
+        return ResponseEntity.ok(AdminComplaintResponse.from(complaint));
     }
 
     @PostMapping("/{id}/resolve")
-    public ResponseEntity<Complaint> resolveComplaint(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
+    @Transactional
+    public ResponseEntity<AdminComplaintResponse> resolveComplaint(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id,
             @Valid @RequestBody ResolveComplaintRequest request) {
-        return ResponseEntity.ok(adminComplaintService.resolve(principal.getId(), id, request));
+        return ResponseEntity.ok(AdminComplaintResponse.from(adminComplaintService.resolve(principal.getId(), id, request)));
     }
     @GetMapping("/{id}/attachments")
     public List<ComplaintAttachmentResponse> complaintAttachments(@PathVariable Long id) { return complaintAttachmentService.listForAdmin(id); }

@@ -70,6 +70,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/v1/stores/**").permitAll()
                 .requestMatchers("/v1/admin/**").hasRole("ADMIN")
                 .requestMatchers("/v1/seller/**").hasRole("SELLER")
+                // Kurye yetkisi global kullanıcı rolü değildir; mağaza bazlı ACTIVE StoreStaff
+                // kaydı ve atama DeliveryService içinde her istekte yeniden doğrulanır.
+                .requestMatchers("/v1/courier/**").authenticated()
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)

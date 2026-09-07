@@ -31,6 +31,7 @@ import com.mealflex.notification.repository.NotificationRepository;
 import com.mealflex.notification.entity.Notification;
 import com.mealflex.complaint.entity.ComplaintStatus;
 import com.mealflex.complaint.service.ComplaintAttachmentService;
+import com.mealflex.complaint.service.ComplaintStatusPolicy;
 import com.mealflex.complaint.dto.ComplaintAttachmentResponse;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -126,7 +127,11 @@ public class ComplaintController {
         Complaint complaint = complaintRepository.findById(complaintId).orElseThrow(() -> new ResourceNotFoundException("Şikâyet", complaintId));
         storeAccessService.requireOwnedStore(principal.getId(), complaint.getStore().getId());
         complaint.setSellerResponse(body.get("response"));
-        if (body.get("status") != null) complaint.setStatus(ComplaintStatus.valueOf(body.get("status")));
+        if (body.get("status") != null) {
+            ComplaintStatus target = ComplaintStatusPolicy.parse(body.get("status"));
+            ComplaintStatusPolicy.requireSellerTransition(complaint.getStatus(), target);
+            complaint.setStatus(target);
+        }
         if ("true".equals(body.get("escalate"))) complaint.setEscalatedAt(java.time.Instant.now());
         complaint = complaintRepository.save(complaint);
         notificationRepository.save(Notification.builder().user(complaint.getCustomer()).title("Şikâyetiniz güncellendi")

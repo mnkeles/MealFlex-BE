@@ -20,7 +20,7 @@ public class FinanceReconciliationService {
     private final FinanceReconciliationRepository reconciliations; private final PaymentRepository payments; private final SellerPayoutRepository payouts; private final UserRepository users; private final AuditLogRepository audits;
     private static final BigDecimal ZERO = new BigDecimal("0.00");
 
-    @Scheduled(cron="0 45 2 * * *", zone="Europe/Istanbul") @Transactional public void reconcilePreviousDay(){ reconcile(LocalDate.now(ZoneId.of("Europe/Istanbul")).minusDays(1)); }
+    @Scheduled(cron="0 45 2 * * *", zone="Europe/Istanbul") @Transactional public void reconcilePreviousDay(){ reconcile(com.mealflex.subscription.service.SubscriptionDatePolicy.today().minusDays(1)); }
     @Transactional public FinanceReconciliation reconcile(LocalDate date){
         ZoneId zone=ZoneId.of("Europe/Istanbul"); Instant from=date.atStartOfDay(zone).toInstant(),to=date.plusDays(1).atStartOfDay(zone).toInstant();
         List<Payment> day=payments.findAll().stream().filter(p->p.getPaidAt()!=null&&!p.getPaidAt().isBefore(from)&&p.getPaidAt().isBefore(to)&&p.getStatus()!=PaymentStatus.FAILED).toList();

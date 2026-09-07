@@ -41,27 +41,26 @@ public class AdminOperationsController {
     private final RiskCaseRepository riskCaseRepository;
 
     @GetMapping("/operations/summary")
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public Map<String, Object> operationsSummary(@RequestParam(required = false) LocalDate startDate,
             @RequestParam(required = false) LocalDate endDate, @RequestParam(required = false) Long storeId) {
         LocalDate start = startDate == null ? com.mealflex.subscription.service.SubscriptionDatePolicy.today().minusDays(30) : startDate;
         LocalDate end = endDate == null ? com.mealflex.subscription.service.SubscriptionDatePolicy.today() : endDate;
         if (end.isBefore(start)) throw new BusinessException("INVALID_DATE_RANGE", "Bitiş tarihi başlangıç tarihinden önce olamaz.");
+        if (end.isAfter(start.plusDays(90))) throw new BusinessException("DATE_RANGE_TOO_LONG", "Operasyon özeti en fazla 91 günlük alınabilir.");
         Instant rangeStart = start.atStartOfDay(com.mealflex.subscription.service.SubscriptionDatePolicy.ZONE).toInstant();
         Instant rangeEnd = end.plusDays(1).atStartOfDay(com.mealflex.subscription.service.SubscriptionDatePolicy.ZONE).toInstant();
         Instant complaintDeadline = Instant.now().minus(Duration.ofHours(24));
-        var deliveries = deliveryRepository.findAll().stream().filter(d -> !d.getDeliveryDate().isBefore(start)
-                && !d.getDeliveryDate().isAfter(end) && (storeId == null || d.getSubscription().getStore().getId().equals(storeId))).toList();
-        var payments = paymentRepository.findAll().stream().filter(p -> !p.getCreatedAt().isBefore(rangeStart)
-                && p.getCreatedAt().isBefore(rangeEnd) && (storeId == null || p.getStore().getId().equals(storeId))).toList();
-        var complaints = complaintRepository.findAll().stream().filter(c -> !c.getCreatedAt().isBefore(rangeStart)
-                && c.getCreatedAt().isBefore(rangeEnd) && (storeId == null || (c.getStore() != null && c.getStore().getId().equals(storeId)))).toList();
+        var deliveries = deliveryRepository.findForAdminOperations(start, end, storeId);
+        var payments = paymentRepository.findForAdminOperations(rangeStart, rangeEnd, storeId);
+        var complaints = complaintRepository.findForAdminOperations(rangeStart, rangeEnd, storeId);
         long delayed = deliveries.stream().filter(d -> d.getStatus() != DeliveryStatus.DELIVERED && d.getStatus() != DeliveryStatus.CANCELLED
                 && ((d.getDelayMinutes() != null && d.getDelayMinutes() >= 30) || (d.getEstimatedDeliveryAt() != null && d.getEstimatedDeliveryAt().isBefore(Instant.now())))).count();
         long openComplaints = complaints.stream().filter(c -> c.getStatus() != ComplaintStatus.RESOLVED && c.getStatus() != ComplaintStatus.CLOSED).count();
         long slaComplaints = complaints.stream().filter(c -> c.getStatus() != ComplaintStatus.RESOLVED && c.getCreatedAt().isBefore(complaintDeadline)).count();
         long failedPayments = payments.stream().filter(p -> p.getStatus() == PaymentStatus.FAILED).count();
-        var pendingSubscriptionItems = subscriptionRepository.findByStatusInAndApprovalDeadlineAtBefore(List.of(SubscriptionStatus.PENDING_APPROVAL), Instant.MAX);
-        long pendingSubscriptions = pendingSubscriptionItems.size();
+        var pendingSubscriptionItems = subscriptionRepository.findTop20ByStatusOrderByCreatedAtAsc(SubscriptionStatus.PENDING_APPROVAL);
+        long pendingSubscriptions = subscriptionRepository.countByStatus(SubscriptionStatus.PENDING_APPROVAL);
         long openRiskCases = riskCaseRepository.countByStatus("OPEN");
         List<Map<String, Object>> alerts = new ArrayList<>();
         deliveries.stream().filter(d -> d.getStatus() != DeliveryStatus.DELIVERED && d.getStatus() != DeliveryStatus.CANCELLED
@@ -108,8 +107,8 @@ public class AdminOperationsController {
         paymentRepository.findById(id).ifPresent(p -> result.put("payment", Map.of("id", p.getId(), "subscriptionId", p.getSubscription().getId(), "status", p.getStatus().name(), "amount", p.getGrossAmount())));
         complaintRepository.findById(id).ifPresent(c -> result.put("complaint", Map.of("id", c.getId(), "customer", c.getCustomer().getFirstName()+" "+c.getCustomer().getLastName(), "status", c.getStatus().name(), "reason", c.getReason())));
         Long entityId = id;
-        result.put("audits", auditLogRepository.findAll().stream().filter(a -> entityId.equals(a.getEntityId()))
-                .sorted(Comparator.comparing(AuditLog::getTimestamp).reversed()).limit(50).map(this::auditView).toList());
+        result.put("audits", auditLogRepository.findTop50ByEntityIdOrderByTimestampDesc(entityId).stream()
+                .map(this::auditView).toList());
         return result;
     }
 

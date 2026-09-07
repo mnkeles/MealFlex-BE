@@ -104,6 +104,10 @@ public class StoreController {
     @Operation(summary = "Son görüntülenen işletmeler")
     public ResponseEntity<List<StoreResponse>> recent(
             @AuthenticationPrincipal UserPrincipal principal, @RequestParam Long addressId) {
+        if (principal == null) {
+            throw new BusinessException("AUTHENTICATION_REQUIRED", "Son görüntülenen işletmeleri görmek için giriş yapmalısınız.",
+                    org.springframework.http.HttpStatus.UNAUTHORIZED);
+        }
         return ResponseEntity.ok(storeService.getRecentViews(principal.getId(), addressId));
     }
 }

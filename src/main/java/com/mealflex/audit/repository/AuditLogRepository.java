@@ -12,6 +12,7 @@ import java.util.List;
 
 public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
     List<AuditLog> findByEntityTypeAndEntityIdOrderByTimestampAsc(String entityType, Long entityId);
+    List<AuditLog> findTop50ByEntityIdOrderByTimestampDesc(Long entityId);
 
     @Query("""
             select audit from AuditLog audit

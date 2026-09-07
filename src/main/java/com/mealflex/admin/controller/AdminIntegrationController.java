@@ -3,6 +3,8 @@ package com.mealflex.admin.controller;
 import com.mealflex.platform.entity.AutomationTask;
 import com.mealflex.platform.entity.IntegrationApiKey;
 import com.mealflex.platform.entity.WebhookSubscription;
+import com.mealflex.admin.dto.AdminWebhookResponse;
+import com.mealflex.admin.dto.AdminAutomationTaskResponse;
 import com.mealflex.platform.service.IntegrationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,15 +34,22 @@ public class AdminIntegrationController {
         return service.createKey(body.getOrDefault("name", "Harici entegrasyon"), body.getOrDefault("scopes", "read"), null);
     }
 
-    @GetMapping("/webhooks") public List<WebhookSubscription> hooks() { return service.hooks(); }
-    @PostMapping("/webhooks") public WebhookSubscription hook(@RequestBody Map<String, String> body) {
-        return service.subscribe(body.get("url"), body.getOrDefault("events", "delivery.updated"), body.getOrDefault("secret", UUID.randomUUID().toString()));
+    @GetMapping("/webhooks") public List<AdminWebhookResponse> hooks() {
+        return service.hooks().stream().map(AdminWebhookResponse::from).toList();
     }
-    @GetMapping("/automation-tasks") public List<AutomationTask> tasks() { return service.tasks(); }
-    @PostMapping("/automation-tasks") public AutomationTask task(@RequestBody Map<String, String> body) {
-        return service.enqueue(body.getOrDefault("type", "MANUAL"), body.getOrDefault("payload", "{}"), Instant.now());
+    @PostMapping("/webhooks") public AdminWebhookResponse hook(@RequestBody Map<String, String> body) {
+        WebhookSubscription saved = service.subscribe(body.get("url"), body.getOrDefault("events", "delivery.updated"), body.getOrDefault("secret", UUID.randomUUID().toString()));
+        return AdminWebhookResponse.from(saved);
     }
-    @PostMapping("/automation-tasks/{id}/run-now") public AutomationTask now(@PathVariable Long id) { return service.runNow(id); }
+    @GetMapping("/automation-tasks") public List<AdminAutomationTaskResponse> tasks() {
+        return service.tasks().stream().map(AdminAutomationTaskResponse::from).toList();
+    }
+    @PostMapping("/automation-tasks") public AdminAutomationTaskResponse task(@RequestBody Map<String, String> body) {
+        return AdminAutomationTaskResponse.from(service.enqueue(body.getOrDefault("type", "MANUAL"), body.getOrDefault("payload", "{}"), Instant.now()));
+    }
+    @PostMapping("/automation-tasks/{id}/run-now") public AdminAutomationTaskResponse now(@PathVariable Long id) {
+        return AdminAutomationTaskResponse.from(service.runNow(id));
+    }
 
     private Map<String, Object> keyView(IntegrationApiKey key) {
         Map<String, Object> view = new LinkedHashMap<>();

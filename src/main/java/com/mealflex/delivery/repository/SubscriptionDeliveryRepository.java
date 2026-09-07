@@ -17,6 +17,12 @@ import jakarta.persistence.LockModeType;
 
 public interface SubscriptionDeliveryRepository extends JpaRepository<SubscriptionDelivery, Long> {
 
+    @Query("SELECT d FROM SubscriptionDelivery d JOIN FETCH d.subscription s JOIN FETCH s.store st "
+            + "WHERE d.deliveryDate BETWEEN :startDate AND :endDate "
+            + "AND (:storeId IS NULL OR st.id = :storeId)")
+    List<SubscriptionDelivery> findForAdminOperations(@Param("startDate") LocalDate startDate,
+            @Param("endDate") LocalDate endDate, @Param("storeId") Long storeId);
+
     List<SubscriptionDelivery> findBySubscriptionId(Long subscriptionId);
 
     List<SubscriptionDelivery> findByDeliveryDate(LocalDate deliveryDate);

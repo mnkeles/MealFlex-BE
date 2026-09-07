@@ -19,6 +19,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
+import java.time.LocalDate;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.never;
@@ -83,5 +85,21 @@ class SellerDocumentServiceTest {
         verify(auditLogRepository).save(argThat(a -> a.getActorId().equals(1L)
                 && a.getNewValue().contains("Belge ve tarih bilgileri doğrulandı.")));
         verify(notificationRepository).save(argThat(n -> n.getUser().equals(sellerUser)));
+    }
+
+    @Test
+    void expiredVerifiedDocumentIsReturnedAsExpiredAndNotVerified() {
+        Store store = Store.builder().name("Mağaza").build();
+        store.setId(5L);
+        SellerDocument document = SellerDocument.builder().store(store).documentType("FOOD_LICENSE")
+                .fileName("ruhsat.pdf").fileUrl("stored.pdf").verificationStatus("VERIFIED")
+                .verified(true).expiryDate(com.mealflex.subscription.service.SubscriptionDatePolicy.today().minusDays(1)).build();
+        when(storeAccessService.requireOwnedStore(99L, 5L)).thenReturn(store);
+        when(documentRepository.findByStoreId(5L)).thenReturn(List.of(document));
+
+        var response = documentService.getDocuments(99L, 5L).getFirst();
+
+        assertThat(response.getVerificationStatus()).isEqualTo("EXPIRED");
+        assertThat(response.isVerified()).isFalse();
     }
 }

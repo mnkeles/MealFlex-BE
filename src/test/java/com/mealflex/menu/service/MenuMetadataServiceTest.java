@@ -176,7 +176,6 @@ class MenuMetadataServiceTest {
 
         assertThat(secondStoreMenu.getName()).isEqualTo("Güncel İkinci Menü");
         assertThat(secondStoreMenu.getPricePerPerson()).isEqualByComparingTo("175");
-        verify(storeRepository, never()).findBySellerUserId(anyLong());
         verify(menuVersionService).capture(secondStoreMenu, 9L);
     }
 

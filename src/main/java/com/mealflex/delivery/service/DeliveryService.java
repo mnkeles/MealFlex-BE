@@ -214,14 +214,22 @@ public class DeliveryService {
         if (target == DeliveryStatus.DELIVERED) {
             boolean validCode = request.deliveryCode() != null && request.deliveryCode().equals(delivery.getDeliveryCode());
             if (!validCode) throw new BusinessException("DELIVERY_CODE_INVALID", "Teslimat kodu hatalı.");
-            delivery.setDeliveredAt(now); delivery.setDeliveredByUserId(userId); delivery.setReceiverName(request.receiverName()); delivery.setProofPhotoUrl(null);
+            delivery.setDeliveredAt(now);
+            delivery.setDeliveredByUserId(userId);
+            if (request.receiverName() != null) delivery.setReceiverName(request.receiverName());
+            // Kanıt ayrı yükleme ucuyla daha önce kaydedilmiş olabilir; teslimde silinmez.
+            if (request.proofPhotoUrl() != null) delivery.setProofPhotoUrl(request.proofPhotoUrl());
         }
         if ((target == DeliveryStatus.FAILED || target == DeliveryStatus.DELIVERY_ATTEMPTED) && (request.failureReason() == null || request.failureReason().isBlank())) throw new BusinessException("FAILURE_REASON_REQUIRED", "Başarısız teslimat nedeni zorunludur.");
         if (target == DeliveryStatus.PREPARING) delivery.setPreparationStartedAt(now);
         if (target == DeliveryStatus.IN_TRANSIT) delivery.setInTransitAt(now);
         if (target == DeliveryStatus.DELIVERY_ATTEMPTED) delivery.setDeliveryAttemptedAt(now);
-        delivery.setStatus(target); delivery.setStatusChangedAt(now); delivery.setEstimatedDeliveryAt(request.estimatedDeliveryAt());
-        delivery.setFailureReason(request.failureReason()); delivery.setDelayMinutes(request.delayMinutes()); delivery.setCourierLatitude(request.courierLatitude()); delivery.setCourierLongitude(request.courierLongitude());
+        delivery.setStatus(target); delivery.setStatusChangedAt(now);
+        if (request.estimatedDeliveryAt() != null) delivery.setEstimatedDeliveryAt(request.estimatedDeliveryAt());
+        if (request.failureReason() != null) delivery.setFailureReason(request.failureReason());
+        if (request.delayMinutes() != null) delivery.setDelayMinutes(request.delayMinutes());
+        if (request.courierLatitude() != null) delivery.setCourierLatitude(request.courierLatitude());
+        if (request.courierLongitude() != null) delivery.setCourierLongitude(request.courierLongitude());
         if (request.notes() != null) delivery.setNotes(request.notes());
         delivery = deliveryRepository.save(delivery);
         sellerPayoutService.scheduleAfterFinalWeeklyDelivery(delivery);

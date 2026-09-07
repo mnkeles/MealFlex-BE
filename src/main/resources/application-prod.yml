@@ -1,0 +1,28 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    show-sql: false
+    hibernate:
+      ddl-auto: validate
+
+logging:
+  level:
+    root: WARN
+    com.mealflex: INFO
+    org.hibernate.SQL: WARN
+
+app:
+  jwt:
+    # Varsayılan değer bilinçli olarak yoktur: eksik sır uygulamayı başlatmamalıdır.
+    secret: ${JWT_SECRET}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS}
+  payment:
+    provider: ${PAYMENT_PROVIDER}
+    webhook-secret: ${PAYMENT_WEBHOOK_SECRET}
+  verification:
+    expose-code: false
