@@ -83,6 +83,7 @@ class SubscriptionServiceTest {
     @Mock private SubscriptionEventStream eventStream;
     @Mock private MenuVersionService menuVersionService;
     @Mock private CampaignService campaignService;
+    @Mock private com.mealflex.seller.repository.SellerSlaEventRepository sellerSlaEventRepository;
 
     private StoreCapacityService storeCapacityService;
     private SubscriptionService service;
@@ -104,7 +105,8 @@ class SubscriptionServiceTest {
                 deliveryPlanningService, deliverySlotRepository, storeCapacityService);
         SubscriptionLifecycleService lifecycleService = new SubscriptionLifecycleService(
                 subscriptionRepository, deliveryPlanningService, paymentService, auditLogRepository,
-                notificationEventService, storeAccessService, payoutService, storeCapacityService);
+                notificationEventService, storeAccessService, payoutService, storeCapacityService,
+                sellerSlaEventRepository);
         service = new SubscriptionService(subscriptionRepository, storeRepository, userRepository, deliveryRepository,
                 notificationEventService, reviewRepository, auditLogRepository, storeAccessService, paymentService,
                 eventStream, menuVersionService, campaignService, preparationService, lifecycleService);

@@ -10,6 +10,8 @@ import com.mealflex.payment.service.PaymentService;
 import com.mealflex.payment.service.SellerPayoutService;
 import com.mealflex.store.service.SellerStoreAccessService;
 import com.mealflex.store.service.StoreCapacityService;
+import com.mealflex.seller.entity.SellerSlaEvent;
+import com.mealflex.seller.repository.SellerSlaEventRepository;
 import com.mealflex.subscription.entity.Subscription;
 import com.mealflex.subscription.entity.SubscriptionStatus;
 import com.mealflex.subscription.repository.SubscriptionRepository;
@@ -36,6 +38,7 @@ public class SubscriptionLifecycleService {
     private final SellerStoreAccessService storeAccessService;
     private final SellerPayoutService payoutService;
     private final StoreCapacityService storeCapacityService;
+    private final SellerSlaEventRepository sellerSlaEventRepository;
 
     @Transactional
     public Subscription approve(Long userId, Long subscriptionId) {
@@ -117,6 +120,39 @@ public class SubscriptionLifecycleService {
                 .referenceId(subscriptionId)
                 .build());
         log.info("Subscription #{} cancelled by userId: {}", subscriptionId, userId);
+        return subscription;
+    }
+
+    @Transactional
+    public Subscription cancelBySeller(Long userId, Long subscriptionId, String reason) {
+        Subscription subscription = getForSeller(userId, subscriptionId);
+        if (!List.of(SubscriptionStatus.APPROVED, SubscriptionStatus.ACTIVE,
+                SubscriptionStatus.PAYMENT_SUSPENDED).contains(subscription.getStatus())) {
+            throw new BusinessException("INVALID_STATUS",
+                    "Yalnız onaylanmış veya devam eden abonelikler satıcı tarafından iptal edilebilir.");
+        }
+        String normalizedReason = reason.trim();
+        SubscriptionStatus previousStatus = subscription.getStatus();
+        subscription.setStatus(SubscriptionStatus.CANCELLED);
+        subscription.setCancelledAt(Instant.now());
+        subscription.setCancellationReason("Satıcı iptali: " + normalizedReason);
+        subscription = subscriptionRepository.save(subscription);
+        deliveryPlanningService.cancelOutstandingDeliveries(subscription.getId(), SubscriptionDatePolicy.today());
+        paymentService.refundForCancellation(subscription, userId, normalizedReason);
+        payoutService.recheckAfterCancellation(subscription.getId());
+        sellerSlaEventRepository.save(SellerSlaEvent.builder()
+                .store(subscription.getStore())
+                .subscription(subscription)
+                .eventType("SELLER_SUBSCRIPTION_CANCELLATION")
+                .reason(normalizedReason)
+                .occurredAt(Instant.now())
+                .build());
+        audit(userId, "SUBSCRIPTION_CANCELLED_BY_SELLER", subscription.getId(),
+                previousStatus.name(), SubscriptionStatus.CANCELLED.name() + ": " + normalizedReason);
+        notifyCustomer(subscription, "Aboneliğiniz işletme tarafından iptal edildi",
+                subscription.getStore().getName() + " aboneliğinizi iptal etti. Kalan ve tahsil edilmiş "
+                        + "teslimatların iadesi otomatik olarak başlatıldı. Gerekçe: " + normalizedReason);
+        log.warn("Subscription #{} cancelled by seller userId: {}", subscriptionId, userId);
         return subscription;
     }
 

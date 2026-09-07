@@ -293,6 +293,11 @@ public class SubscriptionService {
         return toResponse(lifecycleService.cancel(userId, subscriptionId, reason));
     }
 
+    @Transactional
+    public SubscriptionResponse cancelSubscriptionBySeller(Long userId, Long subscriptionId, String reason) {
+        return toResponse(lifecycleService.cancelBySeller(userId, subscriptionId, reason));
+    }
+
     private List<SubscriptionEventResponse> getSubscriptionEvents(Long subscriptionId) {
         return auditLogRepository
                 .findByEntityTypeAndEntityIdOrderByTimestampAsc("SUBSCRIPTION", subscriptionId)

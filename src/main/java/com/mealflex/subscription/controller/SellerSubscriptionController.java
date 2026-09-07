@@ -5,6 +5,8 @@ import com.mealflex.subscription.dto.SubscriptionResponse;
 import com.mealflex.subscription.dto.SubscriptionEventResponse;
 import com.mealflex.subscription.dto.SellerSubscriptionDetailResponse;
 import com.mealflex.subscription.dto.DeliveryModificationRequestResponse;
+import com.mealflex.subscription.dto.SellerCancelSubscriptionRequest;
+import jakarta.validation.Valid;
 import com.mealflex.subscription.entity.SubscriptionStatus;
 import com.mealflex.subscription.service.SubscriptionService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -87,6 +89,16 @@ public class SellerSubscriptionController {
             @RequestParam @NotBlank String reason) {
         return ResponseEntity.ok(
                 subscriptionService.rejectSubscription(principal.getId(), id, reason));
+    }
+
+    @PostMapping("/{id}/cancel")
+    @Operation(summary = "Devam eden aboneliği gerekçeli olarak iptal et ve kalan ödemeleri iade et")
+    public ResponseEntity<SubscriptionResponse> cancel(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable Long id,
+            @Valid @RequestBody SellerCancelSubscriptionRequest request) {
+        return ResponseEntity.ok(subscriptionService.cancelSubscriptionBySeller(
+                principal.getId(), id, request.reason()));
     }
 
     @GetMapping("/stores/{storeId}/revenue")
