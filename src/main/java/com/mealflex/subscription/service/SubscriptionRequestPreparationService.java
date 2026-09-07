@@ -10,6 +10,7 @@ import com.mealflex.store.entity.Store;
 import com.mealflex.store.entity.StoreStatus;
 import com.mealflex.store.repository.StoreRepository;
 import com.mealflex.store.repository.StoreDeliverySlotRepository;
+import com.mealflex.store.service.StoreCapacityService;
 import com.mealflex.store.service.StoreEligibilityService;
 import com.mealflex.subscription.dto.CreateSubscriptionRequest;
 import com.mealflex.user.entity.User;
@@ -34,6 +35,7 @@ public class SubscriptionRequestPreparationService {
     private final StoreEligibilityService eligibilityService;
     private final SubscriptionDeliveryPlanningService deliveryPlanningService;
     private final StoreDeliverySlotRepository deliverySlotRepository;
+    private final StoreCapacityService storeCapacityService;
 
     public PreparedSubscription prepare(Long userId, CreateSubscriptionRequest request) {
         User customer = userRepository.findById(userId)
@@ -82,6 +84,7 @@ public class SubscriptionRequestPreparationService {
             throw new BusinessException("DELIVERY_TIME_NOT_AVAILABLE",
                     "Seçilen saat abonelik dönemindeki tüm hizmet günlerinin çalışma saatlerine uygun olmalıdır.");
         }
+        storeCapacityService.checkAvailability(store, serviceDays, request.getPersonCount());
         return new PreparedSubscription(customer, store, menu, address, eligibility, serviceDays);
     }
 

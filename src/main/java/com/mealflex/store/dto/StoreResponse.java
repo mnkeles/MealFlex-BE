@@ -21,6 +21,7 @@ public class StoreResponse {
     private String coverImageUrl;
     private Integer minPersonCount;
     private Integer maxPersonCount;
+    private Integer dailyCapacity;
     private Integer changeCutoffHours;
     private String productionAddress;
     private String addressTitle;

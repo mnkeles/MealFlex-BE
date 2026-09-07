@@ -26,6 +26,7 @@ import com.mealflex.store.repository.BusinessHourRepository;
 import com.mealflex.store.repository.StoreDeliverySlotRepository;
 import com.mealflex.store.repository.StoreClosedDateRepository;
 import com.mealflex.store.repository.StoreRepository;
+import com.mealflex.store.service.StoreCapacityService;
 import com.mealflex.store.service.StoreEligibilityService;
 import com.mealflex.store.service.SellerStoreAccessService;
 import com.mealflex.subscription.entity.Subscription;
@@ -83,6 +84,7 @@ class SubscriptionServiceTest {
     @Mock private MenuVersionService menuVersionService;
     @Mock private CampaignService campaignService;
 
+    private StoreCapacityService storeCapacityService;
     private SubscriptionService service;
 
     private Subscription subscription;
@@ -96,19 +98,20 @@ class SubscriptionServiceTest {
     void setUp() {
         SubscriptionDeliveryPlanningService deliveryPlanningService =
                 new SubscriptionDeliveryPlanningService(businessHourRepository, closedDateRepository, deliveryRepository);
+        storeCapacityService = new StoreCapacityService(deliveryRepository, storeRepository);
         SubscriptionRequestPreparationService preparationService = new SubscriptionRequestPreparationService(
                 userRepository, storeRepository, menuRepository, addressRepository, eligibilityService,
-                deliveryPlanningService, deliverySlotRepository);
+                deliveryPlanningService, deliverySlotRepository, storeCapacityService);
         SubscriptionLifecycleService lifecycleService = new SubscriptionLifecycleService(
                 subscriptionRepository, deliveryPlanningService, paymentService, auditLogRepository,
-                notificationRepository, storeAccessService, payoutService);
+                notificationRepository, storeAccessService, payoutService, storeCapacityService);
         service = new SubscriptionService(subscriptionRepository, storeRepository, userRepository, deliveryRepository,
                 notificationRepository, reviewRepository, auditLogRepository, storeAccessService, paymentService,
                 eventStream, menuVersionService, campaignService, preparationService, lifecycleService);
 
         customer = User.builder().firstName("Ayşe").lastName("Yılmaz").email("a@example.com").password("x").build();
         customer.setId(10L);
-        store = Store.builder().name("Test Mağaza").dailyCapacity(1).build();
+        store = Store.builder().name("Test Mağaza").build();
         store.setId(20L);
         store.setStatus(StoreStatus.ACTIVE);
         store.setSeller(SellerProfile.builder().user(customer).build());
@@ -136,6 +139,7 @@ class SubscriptionServiceTest {
 
         lenient().when(storeRepository.findAllBySellerUserIdAndDeletedAtIsNull(99L)).thenReturn(List.of(store));
         lenient().when(storeAccessService.requireOwnedStore(99L, 20L)).thenReturn(store);
+        lenient().when(storeRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(store));
         lenient().when(subscriptionRepository.findById(50L)).thenReturn(Optional.of(subscription));
         lenient().when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(paymentService.chargeForApproval(any(Subscription.class), any()))
@@ -152,7 +156,7 @@ class SubscriptionServiceTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void approvalCreatesDeliveriesExactlyOnceAndIgnoresLegacyCapacity() {
+    void approvalCreatesDeliveriesExactlyOnceWhenNoCapacityLimitIsConfigured() {
         when(deliveryRepository.findBySubscriptionId(50L)).thenReturn(List.of());
 
         service.approveSubscription(99L, 50L);
@@ -166,6 +170,30 @@ class SubscriptionServiceTest {
                 .containsExactly(startDate, startDate.plusDays(1), startDate.plusDays(2),
                         startDate.plusDays(3), startDate.plusDays(4));
         verify(auditLogRepository).save(any());
+    }
+
+    @Test
+    void approvalFailsWhenDailyCapacityWouldBeExceededOnAnyServiceDay() {
+        store.setDailyCapacity(9);
+        when(deliveryRepository.findBySubscriptionId(50L)).thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.approveSubscription(99L, 50L))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("STORE_DAILY_CAPACITY_EXCEEDED"));
+
+        assertThat(subscription.getStatus()).isEqualTo(SubscriptionStatus.PENDING_APPROVAL);
+        verify(deliveryRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void approvalSucceedsWhenExactlyAtDailyCapacity() {
+        store.setDailyCapacity(10);
+        when(deliveryRepository.findBySubscriptionId(50L)).thenReturn(List.of());
+
+        service.approveSubscription(99L, 50L);
+
+        assertThat(subscription.getStatus()).isEqualTo(SubscriptionStatus.APPROVED);
+        verify(deliveryRepository).saveAll(any());
     }
 
     @Test

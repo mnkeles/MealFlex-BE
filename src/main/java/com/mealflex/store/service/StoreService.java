@@ -161,6 +161,7 @@ public class StoreService {
                 .description(request.getDescription())
                 .minPersonCount(sortedRules.get(0).getMinPersonCount())
                 .maxPersonCount(request.getMaxPersonCount())
+                .dailyCapacity(request.getDailyCapacity())
                 .changeCutoffHours(request.getChangeCutoffHours() == null ? 24 : request.getChangeCutoffHours())
                 .categories(validateLabels(request.getCategories(), STORE_CATEGORIES, "İşletme kategorisi"))
                 .productionAddress(request.getProductionAddress())
@@ -192,6 +193,7 @@ public class StoreService {
         store.setName(request.getName());
         store.setDescription(request.getDescription());
         store.setMaxPersonCount(request.getMaxPersonCount());
+        store.setDailyCapacity(request.getDailyCapacity());
         if (request.getChangeCutoffHours() != null) store.setChangeCutoffHours(request.getChangeCutoffHours());
         applyAddress(store, request);
         store.setLogoUrl(request.getLogoUrl());
@@ -222,6 +224,7 @@ public class StoreService {
         store.setName(request.getName());
         store.setDescription(request.getDescription());
         store.setMaxPersonCount(request.getMaxPersonCount());
+        store.setDailyCapacity(request.getDailyCapacity());
         if (request.getChangeCutoffHours() != null) store.setChangeCutoffHours(request.getChangeCutoffHours());
         applyAddress(store, request);
         if (request.getCategories() != null) store.setCategories(validateLabels(request.getCategories(), STORE_CATEGORIES, "İşletme kategorisi"));
@@ -592,6 +595,7 @@ public class StoreService {
                 .coverImageUrl(store.getCoverImageUrl())
                 .minPersonCount(store.getMinPersonCount())
                 .maxPersonCount(store.getMaxPersonCount())
+                .dailyCapacity(store.getDailyCapacity())
                 .changeCutoffHours(store.getChangeCutoffHours())
                 .productionAddress(store.getProductionAddress())
                 .addressTitle(store.getAddressTitle())
@@ -627,6 +631,7 @@ public class StoreService {
                 .minPersonCount(store.getMinPersonCount())
                 .effectiveMinPersonCount(eligibility.minimumPersonCount())
                 .maxPersonCount(store.getMaxPersonCount())
+                .dailyCapacity(store.getDailyCapacity())
                 .changeCutoffHours(store.getChangeCutoffHours())
                 .productionAddress(store.getProductionAddress())
                 .addressTitle(store.getAddressTitle())

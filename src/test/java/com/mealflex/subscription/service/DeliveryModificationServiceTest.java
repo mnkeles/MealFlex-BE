@@ -30,6 +30,7 @@ import java.time.*;
 import java.util.Optional;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -48,6 +49,7 @@ class DeliveryModificationServiceTest {
     @Mock AuditLogRepository auditLogRepository;
     @Mock SellerStoreAccessService storeAccessService;
     @Mock SubscriptionEventStream eventStream;
+    @Mock StoreCapacityService storeCapacityService;
     @InjectMocks DeliveryModificationService service;
     private User customer; private Store store; private Subscription subscription; private SubscriptionDelivery delivery;
 
@@ -205,6 +207,31 @@ class DeliveryModificationServiceTest {
         service.approveRequest(9L, 8L);
         assertThat(history.getDeferredReduction()).isEqualByComparingTo("100.00");
         verifyNoInteractions(mealBalanceService);
+    }
+
+    @Test void personCountIncreaseIsRejectedWhenDailyCapacityIsExceeded() {
+        DeliveryModificationHistory history = pendingHistory(LocalTime.NOON, 7, new BigDecimal("100.00")); history.setId(8L);
+        when(historyRepository.findById(8L)).thenReturn(Optional.of(history));
+        doThrow(new BusinessException("STORE_DAILY_CAPACITY_EXCEEDED", "Kapasite dolu."))
+                .when(storeCapacityService).reserveOrThrow(2L, delivery.getDeliveryDate(), 7, 5);
+
+        assertThatThrownBy(() -> service.approveRequest(9L, 8L))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("STORE_DAILY_CAPACITY_EXCEEDED"));
+
+        verify(paymentService, never()).chargeForDeliveryChange(any(), any(), any(), any(), any());
+        verify(deliveryRepository, never()).save(any());
+    }
+
+    @Test void personCountDecreaseSkipsCapacityCheck() {
+        DeliveryModificationHistory history = pendingHistory(LocalTime.NOON, 3, new BigDecimal("-100.00")); history.setId(8L);
+        when(historyRepository.findById(8L)).thenReturn(Optional.of(history));
+        when(paymentService.creditPaidReduction(subscription, 7L, new BigDecimal("100.00"), 1L, "delivery-change-request-8"))
+                .thenReturn(new BigDecimal("100.00"));
+
+        service.approveRequest(9L, 8L);
+
+        verify(storeCapacityService, never()).reserveOrThrow(any(), any(LocalDate.class), anyInt(), anyInt());
     }
 
     @Test void rejectionKeepsTheDeliveryAndFinancialTotalUnchangedAndNotifiesTheCustomer() {

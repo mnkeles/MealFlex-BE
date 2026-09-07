@@ -25,6 +25,9 @@ public class CreateStoreRequest {
 
     private Integer maxPersonCount;
 
+    @Min(value = 1, message = "Günlük kapasite en az 1 kişi olmalıdır.")
+    private Integer dailyCapacity;
+
     @Min(value = 1, message = "Değişiklik son saati en az 1 saat olmalıdır.")
     @Max(value = 168, message = "Değişiklik son saati 168 saati aşamaz.")
     private Integer changeCutoffHours;

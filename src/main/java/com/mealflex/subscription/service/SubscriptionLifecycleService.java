@@ -9,6 +9,7 @@ import com.mealflex.notification.repository.NotificationRepository;
 import com.mealflex.payment.service.PaymentService;
 import com.mealflex.payment.service.SellerPayoutService;
 import com.mealflex.store.service.SellerStoreAccessService;
+import com.mealflex.store.service.StoreCapacityService;
 import com.mealflex.subscription.entity.Subscription;
 import com.mealflex.subscription.entity.SubscriptionStatus;
 import com.mealflex.subscription.repository.SubscriptionRepository;
@@ -20,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 
 @Slf4j
 @Service
@@ -33,6 +35,7 @@ public class SubscriptionLifecycleService {
     private final NotificationRepository notificationRepository;
     private final SellerStoreAccessService storeAccessService;
     private final SellerPayoutService payoutService;
+    private final StoreCapacityService storeCapacityService;
 
     @Transactional
     public Subscription approve(Long userId, Long subscriptionId) {
@@ -43,6 +46,11 @@ public class SubscriptionLifecycleService {
         }
 
         SubscriptionStatus previousStatus = subscription.getStatus();
+        if (!deliveryPlanningService.hasDeliveries(subscription.getId())) {
+            List<LocalDate> serviceDays = deliveryPlanningService.calculateServiceDays(
+                    subscription.getStore().getId(), subscription.getStartDate(), subscription.getEndDate());
+            storeCapacityService.reserveOrThrow(subscription.getStore().getId(), serviceDays, subscription.getPersonCount());
+        }
         deliveryPlanningService.ensureApprovedDeliveries(subscription);
         subscription.setStatus(SubscriptionStatus.APPROVED);
         subscription.setApprovedAt(Instant.now());

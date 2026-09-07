@@ -58,8 +58,12 @@ public class SubscriptionDeliveryPlanningService {
         return serviceDays;
     }
 
+    public boolean hasDeliveries(Long subscriptionId) {
+        return !deliveryRepository.findBySubscriptionId(subscriptionId).isEmpty();
+    }
+
     public void ensureApprovedDeliveries(Subscription subscription) {
-        if (!deliveryRepository.findBySubscriptionId(subscription.getId()).isEmpty()) {
+        if (hasDeliveries(subscription.getId())) {
             return;
         }
         List<LocalDate> serviceDays = calculateServiceDays(

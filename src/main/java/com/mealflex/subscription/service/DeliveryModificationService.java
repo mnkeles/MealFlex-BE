@@ -37,6 +37,7 @@ public class DeliveryModificationService {
     private final NotificationRepository notificationRepository; private final AuditLogRepository auditLogRepository;
     private final SellerStoreAccessService storeAccessService;
     private final SubscriptionEventStream eventStream;
+    private final StoreCapacityService storeCapacityService;
 
     @Transactional(readOnly=true)
     public DeliveryModificationResponse preview(Long userId, Long subscriptionId, Long deliveryId, ModifyDeliveryRequest request) {
@@ -100,6 +101,10 @@ public class DeliveryModificationService {
         }
         SubscriptionDelivery delivery = history.getDelivery();
         validateApprovalWindow(subscription, delivery);
+        if (history.getNewPersonCount() > history.getOldPersonCount()) {
+            storeCapacityService.reserveOrThrow(subscription.getStore().getId(), delivery.getDeliveryDate(),
+                    history.getNewPersonCount(), history.getOldPersonCount());
+        }
         String fingerprint = "delivery-change-request-" + history.getId();
         Payment payment = null; Refund refund = null;
         if (history.getPriceDifference().signum() > 0) {
