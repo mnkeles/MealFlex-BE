@@ -117,6 +117,8 @@ public class SubscriptionService {
                 .paymentMethod(paymentMethod)
                 .commercialTermsAcceptedAt(Instant.now())
                 .approvalDeadlineAt(Instant.now().plus(java.time.Duration.ofDays(7)))
+                .renewalPeriodDays((int) java.time.temporal.ChronoUnit.DAYS.between(
+                        request.getStartDate(), request.getEndDate()) + 1)
                 .build();
 
         subscription = subscriptionRepository.save(subscription);
@@ -416,10 +418,17 @@ public class SubscriptionService {
                 .createdAt(s.getCreatedAt())
                 .approvalDeadlineAt(s.getApprovalDeadlineAt())
                 .sellerViewedAt(s.getSellerViewedAt())
+                .autoRenew(s.isAutoRenew())
+                .renewalPeriodDays(s.getRenewalPeriodDays())
+                .lastAutoRenewedAt(s.getLastAutoRenewedAt())
                 .customerName(s.getCustomer().getFirstName() + " " + s.getCustomer().getLastName())
                 .customerPhone(s.getCustomer().getPhone())
                 .distanceKm(distance(s))
                 .build();
+    }
+
+    public SubscriptionResponse toSubscriptionResponse(Subscription subscription) {
+        return toResponse(subscription);
     }
 
     public org.springframework.web.servlet.mvc.method.annotation.SseEmitter subscribeToStoreEvents(Long userId, Long storeId) {

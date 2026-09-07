@@ -40,6 +40,9 @@ public class SubscriptionResponse {
     private Instant createdAt;
     private Instant approvalDeadlineAt;
     private Instant sellerViewedAt;
+    private boolean autoRenew;
+    private Integer renewalPeriodDays;
+    private Instant lastAutoRenewedAt;
     private String customerName;
     private String customerPhone;
     private BigDecimal distanceKm;

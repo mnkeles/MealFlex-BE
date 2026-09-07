@@ -105,6 +105,18 @@ public class Subscription extends BaseEntity {
 
     private Instant approvalDeadlineAt;
 
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean autoRenew = false;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private Integer renewalPeriodDays = 28;
+
+    private LocalDate renewalPriceNoticeForEndDate;
+
+    private Instant lastAutoRenewedAt;
+
     private Instant sellerViewedAt;
 
     @ManyToOne(fetch = FetchType.LAZY)

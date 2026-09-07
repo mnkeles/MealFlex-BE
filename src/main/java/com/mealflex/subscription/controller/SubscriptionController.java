@@ -12,6 +12,8 @@ import com.mealflex.subscription.dto.ModifyDeliveryRequest;
 import com.mealflex.subscription.dto.DeliveryModificationResponse;
 import com.mealflex.subscription.dto.DeliveryModificationRequestResponse;
 import com.mealflex.subscription.dto.ChangeSubscriptionPaymentMethodRequest;
+import com.mealflex.subscription.dto.ExtendSubscriptionRequest;
+import com.mealflex.subscription.dto.AutoRenewSubscriptionRequest;
 import com.mealflex.subscription.entity.SubscriptionStatus;
 import com.mealflex.subscription.service.SubscriptionService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -37,6 +39,7 @@ public class SubscriptionController {
     private final com.mealflex.subscription.service.SubscriptionChangeService subscriptionChangeService;
     private final com.mealflex.subscription.service.DeliveryModificationService deliveryModificationService;
     private final com.mealflex.payment.service.PaymentService paymentService;
+    private final com.mealflex.subscription.service.SubscriptionRenewalService renewalService;
 
     @PostMapping
     @Operation(summary = "Abonelik talebi oluştur")
@@ -83,6 +86,26 @@ public class SubscriptionController {
             @Valid @RequestBody ChangeSubscriptionPaymentMethodRequest request) {
         return ResponseEntity.ok(paymentService.changeSubscriptionPaymentMethod(
                 principal.getId(), id, request.paymentMethodId()));
+    }
+
+    @PostMapping("/{id}/extend")
+    @Operation(summary = "Devam eden aboneliği aynı koşullarla uzat")
+    public ResponseEntity<SubscriptionResponse> extendSubscription(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable Long id,
+            @Valid @RequestBody ExtendSubscriptionRequest request) {
+        return ResponseEntity.ok(subscriptionService.toSubscriptionResponse(
+                renewalService.extend(principal.getId(), id, request.newEndDate())));
+    }
+
+    @PatchMapping("/{id}/auto-renew")
+    @Operation(summary = "Aboneliğin otomatik yenileme tercihini değiştir")
+    public ResponseEntity<SubscriptionResponse> setAutoRenew(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable Long id,
+            @RequestBody AutoRenewSubscriptionRequest request) {
+        return ResponseEntity.ok(subscriptionService.toSubscriptionResponse(
+                renewalService.setAutoRenew(principal.getId(), id, request.enabled())));
     }
 
     @GetMapping("/{id}/events")

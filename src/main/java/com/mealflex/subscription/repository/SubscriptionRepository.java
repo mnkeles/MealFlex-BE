@@ -84,4 +84,10 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
     List<Subscription> findTop20ByStatusOrderByCreatedAtAsc(SubscriptionStatus status);
 
     List<Subscription> findByStoreIdAndStatusIn(Long storeId, List<SubscriptionStatus> statuses);
+
+    List<Subscription> findByAutoRenewTrueAndStatusInAndEndDateLessThanEqual(
+            List<SubscriptionStatus> statuses, LocalDate date);
+
+    List<Subscription> findByAutoRenewTrueAndStatusInAndEndDate(
+            List<SubscriptionStatus> statuses, LocalDate date);
 }
