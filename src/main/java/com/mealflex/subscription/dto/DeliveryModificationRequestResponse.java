@@ -24,6 +24,7 @@ public record DeliveryModificationRequestResponse(
         BigDecimal priceDifference,
         DeliveryModificationRequestStatus status,
         String decisionReason,
+        String customerNote,
         Instant requestedAt,
         Instant decidedAt) {
 }

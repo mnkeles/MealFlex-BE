@@ -109,6 +109,21 @@ class DeliveryModificationServiceTest {
         verify(eventStream).publish(eq(2L),eq("delivery-change-requested"),any());
     }
 
+    @Test void customerNoteOnlyCreatesPendingRequest() {
+        when(deliveryRepository.findByIdForChange(7L)).thenReturn(Optional.of(delivery));
+        when(eligibilityService.require(store,delivery.getAddress())).thenReturn(new StoreEligibilityService.Eligibility(BigDecimal.ONE,1,10));
+        when(businessHourRepository.findByStoreIdAndDayOfWeek(any(),any())).thenReturn(Optional.empty());
+        when(historyRepository.existsByDeliveryIdAndRequestStatus(7L,DeliveryModificationRequestStatus.PENDING)).thenReturn(false);
+        when(historyRepository.save(any())).thenAnswer(invocation->{DeliveryModificationHistory value=invocation.getArgument(0);value.setId(8L);return value;});
+
+        var response = service.requestChange(1L,6L,7L,
+                new ModifyDeliveryRequest(null, null, null, null, "  Resepsiyona bırakın  "));
+
+        assertThat(response.customerNote()).isEqualTo("Resepsiyona bırakın");
+        assertThat(response.priceDifference()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(delivery.getCustomerNote()).isNull();
+    }
+
     @Test void customerCannotReadAnotherCustomersRequests() {
         when(subscriptionRepository.findById(6L)).thenReturn(Optional.of(subscription));
         assertThatThrownBy(()->service.getCustomerRequests(99L,6L)).isInstanceOf(BusinessException.class).hasMessageContaining("size ait değil");
@@ -169,6 +184,7 @@ class DeliveryModificationServiceTest {
 
     @Test void approvalAppliesTheDifferenceOnlyOnceAndNotifiesTheCustomer() {
         DeliveryModificationHistory history=pendingHistory(LocalTime.of(13,30),7,new BigDecimal("100.00")); history.setId(8L);
+        history.setCustomerNote("Resepsiyona bırakın");
         when(historyRepository.findById(8L)).thenReturn(Optional.of(history));
         when(paymentService.chargeForDeliveryChange(subscription,7L,new BigDecimal("100.00"),1L,"delivery-change-request-8"))
                 .thenReturn(Payment.builder().status(PaymentStatus.SUCCEEDED).build());
@@ -177,6 +193,7 @@ class DeliveryModificationServiceTest {
         assertThat(approved.status()).isEqualTo(DeliveryModificationRequestStatus.APPROVED);
         assertThat(delivery.getDeliveryTime()).isEqualTo(LocalTime.of(13,30));
         assertThat(delivery.getPersonCount()).isEqualTo(7);
+        assertThat(delivery.getCustomerNote()).isEqualTo("Resepsiyona bırakın");
         assertThat(subscription.getTotalAmount()).isEqualByComparingTo("600.00");
         assertThat(history.getRequestStatus()).isEqualTo(DeliveryModificationRequestStatus.APPROVED);
         assertThatThrownBy(()->service.approveRequest(9L,8L)).isInstanceOf(BusinessException.class);

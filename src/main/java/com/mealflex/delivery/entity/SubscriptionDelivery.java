@@ -52,6 +52,9 @@ public class SubscriptionDelivery extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String notes;
 
+    @Column(length = 500)
+    private String customerNote;
+
     @Column
     private Instant deliveredAt;
 

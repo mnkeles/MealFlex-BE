@@ -32,6 +32,7 @@ public class DeliveryResponse {
     private Integer routeSequence;
     private DeliveryStatus status;
     private String notes;
+    private String customerNote;
     private Instant deliveredAt;
     private Instant statusChangedAt;
     private Instant preparationStartedAt;

@@ -403,6 +403,7 @@ public class DeliveryService {
                 .routeSequence(d.getRouteSequence())
                 .status(d.getStatus())
                 .notes(d.getNotes())
+                .customerNote(d.getCustomerNote())
                 .deliveredAt(d.getDeliveredAt())
                 .statusChangedAt(d.getStatusChangedAt())
                 .preparationStartedAt(d.getPreparationStartedAt())

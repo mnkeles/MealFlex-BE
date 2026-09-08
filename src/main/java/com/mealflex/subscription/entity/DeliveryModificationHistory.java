@@ -25,6 +25,7 @@ public class DeliveryModificationHistory extends BaseEntity {
     @Enumerated(EnumType.STRING) @Column(name="request_status", nullable=false) @Builder.Default
     private DeliveryModificationRequestStatus requestStatus = DeliveryModificationRequestStatus.APPLIED;
     @Column(name="decision_reason", length=500) private String decisionReason;
+    @Column(name="customer_note", length=500) private String customerNote;
     @Column(name="decided_at") private java.time.Instant decidedAt;
     @Column(name="decided_by_user_id") private Long decidedByUserId;
     @ManyToOne(fetch=FetchType.LAZY) @JoinColumn(name="payment_id") private Payment payment;

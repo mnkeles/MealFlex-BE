@@ -51,8 +51,11 @@ public class DeliveryModificationService {
         if (historyRepository.existsByDeliveryIdAndRequestStatus(deliveryId, DeliveryModificationRequestStatus.PENDING)) {
             throw new BusinessException("DELIVERY_CHANGE_ALREADY_PENDING", "Bu teslimat için satıcı onayı bekleyen bir değişiklik talebi var.");
         }
-        if (p.time.equals(p.delivery.getDeliveryTime()) && p.personCount == p.delivery.getPersonCount() && p.address.getId().equals(p.delivery.getAddress().getId())) {
-            throw new BusinessException("DELIVERY_CHANGE_NOTHING_CHANGED", "Teslimat saati veya kişi sayısında bir değişiklik yapmalısınız.");
+        String customerNote = normalizeNote(request.customerNote());
+        if (p.time.equals(p.delivery.getDeliveryTime()) && p.personCount == p.delivery.getPersonCount()
+                && p.address.getId().equals(p.delivery.getAddress().getId())
+                && Objects.equals(customerNote, p.delivery.getCustomerNote())) {
+            throw new BusinessException("DELIVERY_CHANGE_NOTHING_CHANGED", "Teslimat saati, kişi sayısı veya notta bir değişiklik yapmalısınız.");
         }
         DeliveryModificationHistory history = historyRepository.save(DeliveryModificationHistory.builder()
                 .subscription(p.subscription).delivery(p.delivery).customer(p.subscription.getCustomer())
@@ -60,7 +63,8 @@ public class DeliveryModificationService {
                 .oldMenu(p.delivery.getMenu()).newMenu(p.delivery.getMenu())
                 .oldDeliveryTime(p.delivery.getDeliveryTime()).newDeliveryTime(p.time)
                 .oldPersonCount(p.delivery.getPersonCount()).newPersonCount(p.personCount)
-                .priceDifference(p.difference).requestStatus(DeliveryModificationRequestStatus.PENDING).build());
+                .priceDifference(p.difference).customerNote(customerNote)
+                .requestStatus(DeliveryModificationRequestStatus.PENDING).build());
         auditLogRepository.save(AuditLog.builder().actorId(userId).action("DELIVERY_CHANGE_REQUESTED").entityType("DELIVERY").entityId(deliveryId)
                 .newValue("addressId=" + p.address.getId() + ",time=" + p.time + ",persons=" + p.personCount + ",difference=" + p.difference).timestamp(Instant.now()).build());
         notificationEventService.publish(Notification.builder().user(p.subscription.getStore().getSeller().getUser())
@@ -120,6 +124,7 @@ public class DeliveryModificationService {
         delivery.setDeliveryTime(history.getNewDeliveryTime());
         delivery.setPersonCount(history.getNewPersonCount());
         delivery.setAddress(history.getNewAddress());
+        delivery.setCustomerNote(history.getCustomerNote());
         delivery.setChangedAt(Instant.now());
         delivery.setChangedByUserId(sellerUserId);
         delivery.setChangeReason("Satıcı teslimat değişikliği talebini onayladı");
@@ -219,8 +224,13 @@ public class DeliveryModificationService {
                 history.getOldDeliveryTime(), history.getNewDeliveryTime(), history.getOldPersonCount(), history.getNewPersonCount(),
                 history.getOldAddress() == null ? null : history.getOldAddress().getId(), history.getNewAddress() == null ? null : history.getNewAddress().getId(),
                 formatAddress(history.getOldAddress()), formatAddress(history.getNewAddress()),
-                history.getPriceDifference(), history.getRequestStatus(), history.getDecisionReason(),
+                history.getPriceDifference(), history.getRequestStatus(), history.getDecisionReason(), history.getCustomerNote(),
                 history.getCreatedAt(), history.getDecidedAt());
+    }
+
+    private String normalizeNote(String value) {
+        if (value == null || value.isBlank()) return null;
+        return value.trim();
     }
 
     private String formatAddress(Address address) {
