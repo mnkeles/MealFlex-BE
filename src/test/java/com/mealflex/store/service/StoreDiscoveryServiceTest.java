@@ -5,6 +5,7 @@ import com.mealflex.menu.repository.MenuRepository;
 import com.mealflex.notification.entity.Notification;
 import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.seller.repository.SellerProfileRepository;
+import com.mealflex.seller.service.SellerResponsePerformanceService;
 import com.mealflex.store.entity.*;
 import com.mealflex.store.repository.*;
 import com.mealflex.user.repository.UserRepository;
@@ -34,6 +35,7 @@ class StoreDiscoveryServiceTest {
     @Mock UserRepository userRepository;
     @Mock FavoriteRepository favoriteRepository;
     @Mock NotificationEventService notificationEventService;
+    @Mock SellerResponsePerformanceService sellerResponsePerformanceService;
     @InjectMocks StoreService storeService;
 
     @Test
@@ -62,15 +64,18 @@ class StoreDiscoveryServiceTest {
     void reopeningStoreNotifiesCustomersWhoFavoritedIt() {
         Store store = mock(Store.class);
         Favorite favorite = mock(Favorite.class, RETURNS_DEEP_STUBS);
+        when(store.getId()).thenReturn(5L);
         when(store.getStatus()).thenReturn(StoreStatus.ACTIVE);
         when(store.isTemporarilyClosed()).thenReturn(true);
         when(store.getName()).thenReturn("Ev Mutfağı");
         when(storeRepository.findByIdAndSellerUserIdAndDeletedAtIsNull(5L, 9L)).thenReturn(Optional.of(store));
         when(storeRepository.save(store)).thenReturn(store);
         when(favoriteRepository.findByStoreId(5L)).thenReturn(List.of(favorite));
+        when(sellerResponsePerformanceService.score(5L)).thenReturn(100);
 
         storeService.setTemporaryClosed(9L, 5L, false);
 
         verify(notificationEventService).publish(ArgumentMatchers.any(Notification.class));
+        verify(sellerResponsePerformanceService).score(5L);
     }
 }
