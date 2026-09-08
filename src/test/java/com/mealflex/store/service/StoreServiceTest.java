@@ -55,6 +55,7 @@ class StoreServiceTest {
     @Mock private NotificationEventService notificationEventService;
     @Mock private SellerDocumentService sellerDocumentService;
     @Mock private SubscriptionServiceDayChangeService subscriptionServiceDayChangeService;
+    @Mock private com.mealflex.seller.service.SellerResponsePerformanceService sellerResponsePerformanceService;
     @InjectMocks private StoreService service;
 
     @Test

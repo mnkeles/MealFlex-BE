@@ -59,6 +59,7 @@ public class StoreService {
     private final NotificationEventService notificationEventService;
     private final SellerDocumentService sellerDocumentService;
     private final SubscriptionServiceDayChangeService subscriptionServiceDayChangeService;
+    private final com.mealflex.seller.service.SellerResponsePerformanceService sellerResponsePerformanceService;
 
     public static final Set<String> STORE_CATEGORIES = Set.of("TURK_MUTFAGI", "EV_YEMEKLERI", "SAGLIKLI", "VEGAN", "IZGARA", "SULU_YEMEK", "DUNYA_MUTFAGI", "FIT_MENULER");
     public static final Set<String> DIET_TAGS = Set.of(
@@ -570,6 +571,7 @@ public class StoreService {
                 .status(store.getStatus())
                 .rating(store.getRating())
                 .reviewCount(store.getReviewCount())
+                .responsePerformanceScore(sellerResponsePerformanceService.score(store.getId()))
                 .temporarilyClosed(store.isTemporarilyClosed())
                 .categories(store.getCategories())
                 .nextAvailableDeliveryDate(nextAvailableDate(store.getId()))
@@ -607,6 +609,7 @@ public class StoreService {
                 .status(store.getStatus())
                 .rating(store.getRating())
                 .reviewCount(store.getReviewCount())
+                .responsePerformanceScore(sellerResponsePerformanceService.score(store.getId()))
                 .temporarilyClosed(store.isTemporarilyClosed())
                 .categories(store.getCategories())
                 .nextAvailableDeliveryDate(nextAvailableDate(store.getId()))
@@ -698,6 +701,7 @@ public class StoreService {
                     Comparator.nullsLast(Comparator.naturalOrder()));
             case "minimum" -> Comparator.comparing(StoreResponse::getEffectiveMinPersonCount);
             default -> Comparator.comparing(StoreResponse::isTemporarilyClosed)
+                    .thenComparing(StoreResponse::getResponsePerformanceScore, Comparator.reverseOrder())
                     .thenComparing(StoreResponse::getRating, Comparator.reverseOrder())
                     .thenComparing(StoreResponse::getDistanceKm);
         };

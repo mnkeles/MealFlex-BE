@@ -58,6 +58,7 @@ public class SubscriptionLifecycleService {
         subscription.setStatus(SubscriptionStatus.APPROVED);
         subscription.setApprovedAt(Instant.now());
         subscription = subscriptionRepository.save(subscription);
+        recordSellerDecision(subscription, "SUBSCRIPTION_APPROVED");
         audit(userId, "SUBSCRIPTION_APPROVED", subscription.getId(),
                 previousStatus.name(), SubscriptionStatus.APPROVED.name());
         notifyCustomer(subscription, "Aboneliğiniz Onaylandı",
@@ -79,6 +80,7 @@ public class SubscriptionLifecycleService {
         subscription.setRejectedAt(Instant.now());
         subscription.setCancellationReason(reason);
         subscription = subscriptionRepository.save(subscription);
+        recordSellerDecision(subscription, "SUBSCRIPTION_REJECTED");
         deliveryPlanningService.cancelOutstandingDeliveries(subscription.getId(), SubscriptionDatePolicy.today());
         audit(userId, "SUBSCRIPTION_REJECTED", subscription.getId(),
                 previousStatus.name(), SubscriptionStatus.REJECTED.name());
@@ -165,6 +167,14 @@ public class SubscriptionLifecycleService {
 
     private boolean isAwaitingSellerDecision(SubscriptionStatus status) {
         return status == SubscriptionStatus.PENDING_APPROVAL;
+    }
+
+    private void recordSellerDecision(Subscription subscription, String eventType) {
+        Instant now = Instant.now();
+        Instant createdAt = subscription.getCreatedAt() == null ? now : subscription.getCreatedAt();
+        long responseMinutes = Math.max(0, java.time.Duration.between(createdAt, now).toMinutes());
+        sellerSlaEventRepository.save(SellerSlaEvent.builder().store(subscription.getStore()).subscription(subscription)
+                .eventType(eventType).reason("responseMinutes=" + responseMinutes).occurredAt(now).build());
     }
 
     private void audit(Long actorId, String action, Long subscriptionId, String oldValue, String newValue) {

@@ -45,6 +45,7 @@ class SubscriptionSchedulerTest {
     @Mock private SubscriptionDeliveryRepository deliveryRepository;
     @Mock private AuditLogRepository auditLogRepository;
     @Mock private SubscriptionEventStream eventStream;
+    @Mock private com.mealflex.seller.repository.SellerSlaEventRepository sellerSlaEventRepository;
 
     @InjectMocks private SubscriptionScheduler scheduler;
 
@@ -134,6 +135,8 @@ class SubscriptionSchedulerTest {
         verify(subscriptionRepository).save(subscription);
         verify(eventStream).publish(eq(7L), eq("subscription-sla-expired"),
                 eq(Map.of("subscriptionId", 50L, "status", "CANCELLED")));
+        verify(sellerSlaEventRepository).save(org.mockito.ArgumentMatchers.argThat(event ->
+                event.getEventType().equals("SUBSCRIPTION_APPROVAL_EXPIRED") && event.getStore().getId().equals(7L)));
     }
 
 }

@@ -32,6 +32,7 @@ public class SubscriptionScheduler {
     private final SubscriptionDeliveryRepository deliveryRepository;
     private final AuditLogRepository auditLogRepository;
     private final SubscriptionEventStream eventStream;
+    private final com.mealflex.seller.repository.SellerSlaEventRepository sellerSlaEventRepository;
 
     @Scheduled(cron = "0 */15 * * * *", zone = "Europe/Istanbul")
     @Transactional
@@ -45,6 +46,9 @@ public class SubscriptionScheduler {
             audit("SUBSCRIPTION_AUTO_CANCELLED", sub, previous.name(), SubscriptionStatus.CANCELLED.name());
             notify(sub,"Aboneliğiniz İptal Edildi","Satıcı onay süresi içinde yanıt vermediği için talebiniz otomatik iptal edildi.");
             subscriptionRepository.save(sub);
+            sellerSlaEventRepository.save(com.mealflex.seller.entity.SellerSlaEvent.builder()
+                    .store(sub.getStore()).subscription(sub).eventType("SUBSCRIPTION_APPROVAL_EXPIRED")
+                    .reason("Satıcı onay süresi içinde yanıt vermedi.").occurredAt(now).build());
             eventStream.publish(sub.getStore().getId(),"subscription-sla-expired",java.util.Map.of("subscriptionId",sub.getId(),"status",sub.getStatus().name()));
         }
     }

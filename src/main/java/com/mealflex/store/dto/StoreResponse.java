@@ -42,6 +42,7 @@ public class StoreResponse {
     private StoreStatus status;
     private BigDecimal rating;
     private Integer reviewCount;
+    private Integer responsePerformanceScore;
     private boolean temporarilyClosed;
     private Set<String> categories;
     private LocalDate nextAvailableDeliveryDate;
