@@ -9,12 +9,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.*;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @RestController @RequestMapping("/v1/payments") @RequiredArgsConstructor
 public class PaymentController {
     private final PaymentService service;
+    private final com.mealflex.payment.service.InvoicePdfService invoicePdfService;
     @PostMapping("/methods") public ResponseEntity<PaymentMethodResponse> addMethod(@AuthenticationPrincipal UserPrincipal principal, @Valid @RequestBody CreatePaymentMethodRequest request) { return ResponseEntity.status(HttpStatus.CREATED).body(service.addMethod(principal.getId(), request)); }
     @GetMapping("/methods") public List<PaymentMethodResponse> methods(@AuthenticationPrincipal UserPrincipal principal) { return service.listMethods(principal.getId()); }
     @DeleteMapping("/methods/{id}") public ResponseEntity<Void> deleteMethod(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id) { service.deleteMethod(principal.getId(), id); return ResponseEntity.noContent().build(); }
@@ -28,8 +28,9 @@ public class PaymentController {
     @PostMapping("/{paymentId}/retry") public PaymentResponse retry(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long paymentId) { return service.retry(principal.getId(), paymentId); }
     @GetMapping("/invoices/{invoiceId}") public ResponseEntity<byte[]> invoice(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long invoiceId, @RequestParam(defaultValue="false") boolean download) {
         Invoice invoice = service.getInvoice(principal.getId(), invoiceId);
-        String body = "MealFlex Ödeme Dekontu\nBelge No: " + invoice.getInvoiceNumber() + "\nAbonelik: #" + invoice.getSubscription().getId() + "\nTutar: " + invoice.getGrossAmount() + " " + invoice.getCurrency() + "\nTarih: " + invoice.getIssuedAt();
-        ContentDisposition disposition = (download ? ContentDisposition.attachment() : ContentDisposition.inline()).filename(invoice.getInvoiceNumber() + ".txt").build();
-        return ResponseEntity.ok().contentType(MediaType.TEXT_PLAIN).header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString()).body(body.getBytes(StandardCharsets.UTF_8));
+        byte[] body = invoicePdfService.create(invoice);
+        ContentDisposition disposition = (download ? ContentDisposition.attachment() : ContentDisposition.inline()).filename(invoice.getInvoiceNumber() + ".pdf").build();
+        return ResponseEntity.ok().contentType(MediaType.APPLICATION_PDF).contentLength(body.length)
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString()).body(body);
     }
 }
