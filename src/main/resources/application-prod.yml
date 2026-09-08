@@ -37,5 +37,7 @@ app:
   payment:
     provider: ${PAYMENT_PROVIDER}
     webhook-secret: ${PAYMENT_WEBHOOK_SECRET}
+  payout:
+    provider: ${PAYOUT_PROVIDER:MOCK}
   verification:
     expose-code: false

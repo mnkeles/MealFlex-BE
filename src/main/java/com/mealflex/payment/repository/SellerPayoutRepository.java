@@ -13,4 +13,7 @@ public interface SellerPayoutRepository extends JpaRepository<SellerPayout, Long
     @Query("select p from SellerPayout p where p.store.id=:storeId and p.periodStart=:start and p.periodEnd=:end")
     Optional<SellerPayout> findPeriodForUpdate(@Param("storeId") Long storeId,
             @Param("start") java.time.LocalDate start, @Param("end") java.time.LocalDate end);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from SellerPayout p join fetch p.store s join fetch s.seller sp join fetch sp.user where p.id=:id")
+    Optional<SellerPayout> findByIdForUpdate(@Param("id") Long id);
 }

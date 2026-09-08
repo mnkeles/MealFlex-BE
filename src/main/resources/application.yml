@@ -82,6 +82,8 @@ app:
       callback-url: ${IYZICO_CALLBACK_URL:http://localhost:5173/payments/iyzico-callback}
     currency: TRY
     collection-model: FULL_ON_SELLER_APPROVAL
+  payout:
+    provider: ${PAYOUT_PROVIDER:MOCK}
   invoice:
     elogo:
       enabled: ${ELOGO_ENABLED:false}

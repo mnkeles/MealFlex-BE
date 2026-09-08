@@ -65,6 +65,21 @@ class AdminFinanceControllerTest {
     }
 
     @Test
+    void payoutRequiresRecentAuthenticationBeforeTransfer() {
+        AdminFinanceService financeService = mock(AdminFinanceService.class);
+        AccountSecurityService security = mock(AccountSecurityService.class);
+        AdminFinanceController controller = new AdminFinanceController(financeService, security,
+                mock(FinanceReconciliationService.class));
+        UserPrincipal admin = mock(UserPrincipal.class); when(admin.getId()).thenReturn(1L);
+        doThrow(new BusinessException("REAUTH_REQUIRED", "Yeniden doğrulama gerekli."))
+                .when(security).requireRecentAuthentication(1L,"expired");
+
+        assertThrows(BusinessException.class, () -> controller.payPayout(admin,20L,"expired"));
+
+        verify(financeService,never()).payPayout(anyLong(),anyLong());
+    }
+
+    @Test
     void reconciliationResponseKeepsUnknownAmountsNull() {
         FinanceReconciliationService reconciliationService = mock(FinanceReconciliationService.class);
         AdminFinanceController controller = new AdminFinanceController(mock(AdminFinanceService.class),

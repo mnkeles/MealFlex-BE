@@ -8,6 +8,9 @@ import com.mealflex.menu.entity.Menu;
 import com.mealflex.payment.entity.*;
 import com.mealflex.payment.repository.*;
 import com.mealflex.payment.service.PaymentService;
+import com.mealflex.payment.provider.PayoutTransferProvider;
+import com.mealflex.notification.service.NotificationEventService;
+import com.mealflex.seller.entity.SellerProfile;
 import com.mealflex.store.entity.Store;
 import com.mealflex.subscription.entity.Subscription;
 import com.mealflex.user.entity.User;
@@ -25,7 +28,71 @@ import static org.mockito.Mockito.*;
 class AdminFinanceServiceTest {
     @Mock PaymentRepository payments; @Mock RefundRepository refunds; @Mock PaymentAllocationRepository allocations;
     @Mock SubscriptionDeliveryRepository deliveries; @Mock SellerPayoutRepository payouts; @Mock PaymentService paymentService;
-    @Mock AuditLogRepository audits; @InjectMocks AdminFinanceService service;
+    @Mock AuditLogRepository audits; @Mock PayoutTransferProvider payoutProvider;
+    @Mock NotificationEventService notifications; @InjectMocks AdminFinanceService service;
+
+    @Test void payablePayoutRequiresIbanThenIsTransferredOnlyOnceAndSellerIsNotified() {
+        User seller = User.builder().firstName("Satıcı").lastName("Kullanıcı").build(); seller.setId(8L);
+        SellerProfile profile = SellerProfile.builder().user(seller).companyTitle("Firma").taxNumber("1")
+                .taxOffice("Ofis").authorizedPerson("Yetkili").iban("TR330006100519786457841326").build();
+        Store store = Store.builder().name("Store").seller(profile).build(); store.setId(2L);
+        SellerPayout payout = SellerPayout.builder().store(store).status("SCHEDULED")
+                .periodStart(java.time.LocalDate.of(2026,9,1)).periodEnd(java.time.LocalDate.of(2026,9,7))
+                .currency("TRY").grossAmount(new BigDecimal("100.00")).commissionAmount(new BigDecimal("10.00"))
+                .refundAmount(BigDecimal.ZERO).adjustmentAmount(BigDecimal.ZERO).netAmount(new BigDecimal("90.00"))
+                .scheduledAt(Instant.now().minusSeconds(1)).build(); payout.setId(30L);
+        when(payouts.findByIdForUpdate(30L)).thenReturn(Optional.of(payout));
+        when(payoutProvider.name()).thenReturn("MOCK");
+        when(payoutProvider.transfer(eq("TR330006100519786457841326"), eq(new BigDecimal("90.00")),
+                eq("TRY"), eq("seller-payout-30"))).thenReturn(
+                new PayoutTransferProvider.TransferResult(true,"mock_payout_30","00",null));
+
+        var result = service.payPayout(9L,30L);
+
+        assertThat(result.getStatus()).isEqualTo("PAID");
+        assertThat(result.getProviderPayoutId()).isEqualTo("mock_payout_30");
+        verify(notifications).publish(eq(seller), eq("SELLER_PAYOUT"), eq("Hakedişiniz ödendi"),
+                contains("90.00 TRY"), eq("SELLER_PAYOUT"), eq(30L));
+        verify(audits).save(argThat(a -> a.getAction().equals("ADMIN_PAYOUT_PAID")));
+
+        assertThatThrownBy(() -> service.payPayout(9L,30L)).hasMessageContaining("daha önce ödendi");
+        verify(payoutProvider, times(1)).transfer(anyString(), any(), anyString(), anyString());
+    }
+
+    @Test void payoutWithoutValidIbanIsRejectedBeforeProviderCall() {
+        User seller = User.builder().build(); seller.setId(8L);
+        SellerProfile profile = SellerProfile.builder().user(seller).companyTitle("Firma").taxNumber("1")
+                .taxOffice("Ofis").authorizedPerson("Yetkili").iban(null).build();
+        Store store = Store.builder().name("Store").seller(profile).build(); store.setId(2L);
+        SellerPayout payout = SellerPayout.builder().store(store).status("SCHEDULED")
+                .periodStart(java.time.LocalDate.now()).periodEnd(java.time.LocalDate.now()).currency("TRY")
+                .netAmount(BigDecimal.TEN).scheduledAt(Instant.now().minusSeconds(1)).build(); payout.setId(31L);
+        when(payouts.findByIdForUpdate(31L)).thenReturn(Optional.of(payout));
+
+        assertThatThrownBy(() -> service.payPayout(9L,31L)).hasMessageContaining("IBAN");
+        verifyNoInteractions(payoutProvider, notifications);
+    }
+
+    @Test void providerFailureMarksPayoutRetriableAndCreatesAudit() {
+        User seller = User.builder().build(); seller.setId(8L);
+        SellerProfile profile = SellerProfile.builder().user(seller).companyTitle("Firma").taxNumber("1")
+                .taxOffice("Ofis").authorizedPerson("Yetkili").iban("TR330006100519786457841326").build();
+        Store store = Store.builder().name("Store").seller(profile).build(); store.setId(2L);
+        SellerPayout payout = SellerPayout.builder().store(store).status("SCHEDULED")
+                .periodStart(java.time.LocalDate.now()).periodEnd(java.time.LocalDate.now()).currency("TRY")
+                .netAmount(BigDecimal.TEN).scheduledAt(Instant.now().minusSeconds(1)).build(); payout.setId(32L);
+        when(payouts.findByIdForUpdate(32L)).thenReturn(Optional.of(payout));
+        when(payoutProvider.name()).thenReturn("MOCK");
+        when(payoutProvider.transfer(anyString(), any(), anyString(), anyString())).thenReturn(
+                new PayoutTransferProvider.TransferResult(false,null,"BANK_DOWN","Banka erişilemiyor"));
+
+        assertThatThrownBy(() -> service.payPayout(9L,32L)).hasMessageContaining("Banka erişilemiyor");
+
+        assertThat(payout.getStatus()).isEqualTo("TRANSFER_FAILED");
+        verify(payouts).save(payout);
+        verify(audits).save(argThat(a -> a.getAction().equals("ADMIN_PAYOUT_TRANSFER_FAILED")));
+        verifyNoInteractions(notifications);
+    }
 
     @Test void explicitlyVerifiedLegacyAllocationIsPersistedAndAudited() {
         Payment payment = payment("100.00", "20.00");

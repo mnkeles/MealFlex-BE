@@ -14,6 +14,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import java.time.LocalDate;
@@ -39,6 +41,19 @@ public class AdminFinanceController {
     }
     @GetMapping("/payouts") @Operation(summary="Satıcı hakedişleri")
     public ResponseEntity<List<AdminPayoutResponse>> payouts(@RequestParam(required=false) Long storeId){return ResponseEntity.ok(adminFinanceService.listPayouts(storeId));}
+    @PostMapping("/payouts/{payoutId}/pay") @Operation(summary="Satıcı hakedişini banka aktarımına gönder")
+    public ResponseEntity<AdminPayoutResponse> payPayout(@AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable Long payoutId, @RequestHeader(value="X-Reauth-Token",required=false) String reauthToken) {
+        accountSecurityService.requireRecentAuthentication(principal.getId(), reauthToken);
+        return ResponseEntity.ok(adminFinanceService.payPayout(principal.getId(), payoutId));
+    }
+    @GetMapping(value="/payouts/{payoutId}/statement", produces="text/plain;charset=UTF-8")
+    @Operation(summary="Hakediş mutabakat belgesini indir")
+    public ResponseEntity<String> payoutStatement(@PathVariable Long payoutId) {
+        return ResponseEntity.ok().contentType(new MediaType("text", "plain", java.nio.charset.StandardCharsets.UTF_8))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=hak-edis-" + payoutId + ".txt")
+                .body(adminFinanceService.payoutStatement(payoutId));
+    }
     @GetMapping("/finance-reconciliations") @Operation(summary="Günlük finansal mutabakat kayıtları")
     public List<java.util.Map<String,Object>> reconciliations(){return financeReconciliationService.list().stream().map(this::reconciliation).toList();}
     @PostMapping("/finance-reconciliations/{id}/resolve") @Operation(summary="Mutabakat farkını inceleyip kapat")
