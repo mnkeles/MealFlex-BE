@@ -25,7 +25,6 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SubscriptionRequestPreparationService {
 
-    private static final int MIN_SERVICE_DAYS = 5;
     private static final int MIN_LEAD_DAYS = 2;
 
     private final UserRepository userRepository;
@@ -36,6 +35,7 @@ public class SubscriptionRequestPreparationService {
     private final SubscriptionDeliveryPlanningService deliveryPlanningService;
     private final StoreDeliverySlotRepository deliverySlotRepository;
     private final StoreCapacityService storeCapacityService;
+    private final com.mealflex.platform.service.PlatformSettingService platformSettingService;
 
     public PreparedSubscription prepare(Long userId, CreateSubscriptionRequest request) {
         User customer = userRepository.findById(userId)
@@ -75,9 +75,11 @@ public class SubscriptionRequestPreparationService {
 
         List<LocalDate> serviceDays = deliveryPlanningService.calculateServiceDays(
                 store.getId(), request.getStartDate(), request.getEndDate());
-        if (serviceDays.size() < MIN_SERVICE_DAYS) {
+        int minimumServiceDays = platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.MIN_SERVICE_DAYS, 5);
+        if (serviceDays.size() < minimumServiceDays) {
             throw new BusinessException("MINIMUM_SERVICE_DAYS",
-                    "Abonelik en az " + MIN_SERVICE_DAYS + " hizmet günü olmalıdır. Seçilen aralıkta "
+                    "Abonelik en az " + minimumServiceDays + " hizmet günü olmalıdır. Seçilen aralıkta "
                             + serviceDays.size() + " hizmet günü bulunmaktadır.");
         }
         if (!deliveryPlanningService.isDeliveryTimeAvailable(store.getId(), request.getDeliveryTime(), serviceDays)) {

@@ -130,7 +130,7 @@ class SubscriptionSchedulerTest {
 
         assertThat(subscription.getStatus()).isEqualTo(SubscriptionStatus.CANCELLED);
         assertThat(subscription.getCancelledAt()).isNotNull();
-        assertThat(subscription.getCancellationReason()).contains("7 gün");
+        assertThat(subscription.getCancellationReason()).contains("onay süresi");
         verify(subscriptionRepository).save(subscription);
         verify(eventStream).publish(eq(7L), eq("subscription-sla-expired"),
                 eq(Map.of("subscriptionId", 50L, "status", "CANCELLED")));

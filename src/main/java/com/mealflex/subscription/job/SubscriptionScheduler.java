@@ -41,9 +41,9 @@ public class SubscriptionScheduler {
                 List.of(SubscriptionStatus.PENDING_APPROVAL), now)) {
             SubscriptionStatus previous = sub.getStatus();
             sub.setStatus(SubscriptionStatus.CANCELLED); sub.setCancelledAt(now);
-            sub.setCancellationReason("Satıcı 7 gün içinde onay vermediği için talep otomatik iptal edildi.");
+            sub.setCancellationReason("Satıcı onay süresi içinde yanıt vermediği için talep otomatik iptal edildi.");
             audit("SUBSCRIPTION_AUTO_CANCELLED", sub, previous.name(), SubscriptionStatus.CANCELLED.name());
-            notify(sub,"Aboneliğiniz İptal Edildi","Satıcı 7 gün içinde onay vermediği için talebiniz otomatik iptal edildi.");
+            notify(sub,"Aboneliğiniz İptal Edildi","Satıcı onay süresi içinde yanıt vermediği için talebiniz otomatik iptal edildi.");
             subscriptionRepository.save(sub);
             eventStream.publish(sub.getStore().getId(),"subscription-sla-expired",java.util.Map.of("subscriptionId",sub.getId(),"status",sub.getStatus().name()));
         }

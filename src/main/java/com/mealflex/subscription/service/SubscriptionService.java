@@ -66,6 +66,7 @@ public class SubscriptionService {
     private final CampaignService campaignService;
     private final SubscriptionRequestPreparationService preparationService;
     private final SubscriptionLifecycleService lifecycleService;
+    private final com.mealflex.platform.service.PlatformSettingService platformSettingService;
 
     @Transactional
     public SubscriptionResponse createSubscription(Long userId, CreateSubscriptionRequest request,
@@ -116,7 +117,8 @@ public class SubscriptionService {
                 .idempotencyKey(normalizedKey)
                 .paymentMethod(paymentMethod)
                 .commercialTermsAcceptedAt(Instant.now())
-                .approvalDeadlineAt(Instant.now().plus(java.time.Duration.ofDays(7)))
+                .approvalDeadlineAt(Instant.now().plus(java.time.Duration.ofHours(platformSettingService.getInt(
+                        com.mealflex.platform.service.PlatformSettingService.APPROVAL_SLA_HOURS, 72))))
                 .renewalPeriodDays((int) java.time.temporal.ChronoUnit.DAYS.between(
                         request.getStartDate(), request.getEndDate()) + 1)
                 .build();

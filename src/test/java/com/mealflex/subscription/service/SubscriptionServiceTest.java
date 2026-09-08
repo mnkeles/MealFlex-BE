@@ -84,6 +84,7 @@ class SubscriptionServiceTest {
     @Mock private MenuVersionService menuVersionService;
     @Mock private CampaignService campaignService;
     @Mock private com.mealflex.seller.repository.SellerSlaEventRepository sellerSlaEventRepository;
+    @Mock private com.mealflex.platform.service.PlatformSettingService platformSettingService;
 
     private StoreCapacityService storeCapacityService;
     private SubscriptionService service;
@@ -102,14 +103,20 @@ class SubscriptionServiceTest {
         storeCapacityService = new StoreCapacityService(deliveryRepository, storeRepository);
         SubscriptionRequestPreparationService preparationService = new SubscriptionRequestPreparationService(
                 userRepository, storeRepository, menuRepository, addressRepository, eligibilityService,
-                deliveryPlanningService, deliverySlotRepository, storeCapacityService);
+                deliveryPlanningService, deliverySlotRepository, storeCapacityService, platformSettingService);
         SubscriptionLifecycleService lifecycleService = new SubscriptionLifecycleService(
                 subscriptionRepository, deliveryPlanningService, paymentService, auditLogRepository,
                 notificationEventService, storeAccessService, payoutService, storeCapacityService,
                 sellerSlaEventRepository);
         service = new SubscriptionService(subscriptionRepository, storeRepository, userRepository, deliveryRepository,
                 notificationEventService, reviewRepository, auditLogRepository, storeAccessService, paymentService,
-                eventStream, menuVersionService, campaignService, preparationService, lifecycleService);
+                eventStream, menuVersionService, campaignService, preparationService, lifecycleService,
+                platformSettingService);
+
+        lenient().when(platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.MIN_SERVICE_DAYS, 5)).thenReturn(5);
+        lenient().when(platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.APPROVAL_SLA_HOURS, 72)).thenReturn(72);
 
         customer = User.builder().firstName("Ayşe").lastName("Yılmaz").email("a@example.com").password("x").build();
         customer.setId(10L);
