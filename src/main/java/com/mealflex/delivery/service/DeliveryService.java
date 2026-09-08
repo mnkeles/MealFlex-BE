@@ -400,6 +400,8 @@ public class DeliveryService {
                 .deliveryAddressDetails(formatAddress(d.getAddress()))
                 .courierId(d.getCourier() == null ? null : d.getCourier().getId())
                 .courierName(d.getCourier() == null ? null : d.getCourier().getFullName())
+                .courierPhone(d.getCourier() == null ? null : d.getCourier().getPhone())
+                .courierPhoneMasked(d.getCourier() == null ? null : maskPhone(d.getCourier().getPhone()))
                 .routeSequence(d.getRouteSequence())
                 .status(d.getStatus())
                 .notes(d.getNotes())

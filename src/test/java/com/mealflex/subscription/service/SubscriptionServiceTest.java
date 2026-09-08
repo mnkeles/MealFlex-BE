@@ -6,6 +6,7 @@ import com.mealflex.audit.repository.AuditLogRepository;
 import com.mealflex.common.exception.BusinessException;
 import com.mealflex.common.exception.ResourceNotFoundException;
 import com.mealflex.delivery.entity.DeliveryStatus;
+import com.mealflex.delivery.entity.Courier;
 import com.mealflex.delivery.entity.SubscriptionDelivery;
 import com.mealflex.delivery.repository.SubscriptionDeliveryRepository;
 import com.mealflex.menu.entity.Menu;
@@ -179,6 +180,38 @@ class SubscriptionServiceTest {
                 .containsExactly(startDate, startDate.plusDays(1), startDate.plusDays(2),
                         startDate.plusDays(3), startDate.plusDays(4));
         verify(auditLogRepository).save(any());
+    }
+
+    @Test
+    void customerDeliveryDetailIncludesCourierIdentityAndMaskedPhone() {
+        Courier courier = Courier.builder()
+                .store(store)
+                .fullName("Mehmet Kurye")
+                .phone("+90 532 123 45 67")
+                .build();
+        courier.setId(71L);
+        SubscriptionDelivery delivery = SubscriptionDelivery.builder()
+                .subscription(subscription)
+                .menu(menu)
+                .address(address)
+                .courier(courier)
+                .deliveryDate(startDate)
+                .deliveryTime(LocalTime.NOON)
+                .personCount(10)
+                .status(DeliveryStatus.IN_TRANSIT)
+                .build();
+        delivery.setId(72L);
+        when(deliveryRepository.findBySubscriptionId(50L)).thenReturn(List.of(delivery));
+        when(reviewRepository.existsByCustomerIdAndSubscriptionId(10L, 50L)).thenReturn(false);
+
+        var detail = service.getCustomerSubscriptionDetail(10L, 50L);
+
+        assertThat(detail.getDeliveries()).singleElement().satisfies(result -> {
+            assertThat(result.getCourierId()).isEqualTo(71L);
+            assertThat(result.getCourierName()).isEqualTo("Mehmet Kurye");
+            assertThat(result.getCourierPhone()).isEqualTo("+90 532 123 45 67");
+            assertThat(result.getCourierPhoneMasked()).isEqualTo("•••• ••• 4567");
+        });
     }
 
     @Test

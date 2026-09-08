@@ -29,6 +29,8 @@ public class DeliveryResponse {
     private String deliveryAddressDetails;
     private Long courierId;
     private String courierName;
+    private String courierPhone;
+    private String courierPhoneMasked;
     private Integer routeSequence;
     private DeliveryStatus status;
     private String notes;

@@ -329,6 +329,10 @@ public class SubscriptionService {
                 .menuName(delivery.getMenu().getName())
                 .customerName(subscription.getCustomer().getFirstName() + " " + subscription.getCustomer().getLastName())
                 .deliveryAddress(formatDeliveryAddress(delivery.getAddress()))
+                .courierId(delivery.getCourier() == null ? null : delivery.getCourier().getId())
+                .courierName(delivery.getCourier() == null ? null : delivery.getCourier().getFullName())
+                .courierPhone(delivery.getCourier() == null ? null : delivery.getCourier().getPhone())
+                .courierPhoneMasked(delivery.getCourier() == null ? null : maskPhone(delivery.getCourier().getPhone()))
                 .status(delivery.getStatus())
                 .notes(delivery.getNotes())
                 .deliveredAt(delivery.getDeliveredAt())
@@ -345,6 +349,12 @@ public class SubscriptionService {
                 .courierLatitude(delivery.getCourierLatitude())
                 .courierLongitude(delivery.getCourierLongitude())
                 .build();
+    }
+
+    private String maskPhone(String phone) {
+        if (phone == null || phone.isBlank()) return null;
+        String digits = phone.replaceAll("\\D", "");
+        return digits.length() < 4 ? "••••" : "•••• ••• " + digits.substring(digits.length() - 4);
     }
 
     private void notify(User user, String title, String message, String referenceType, Long referenceId) {
