@@ -312,6 +312,24 @@ class SubscriptionServiceTest {
     }
 
     @Test
+    void previewRejectsSubscriptionOutsideMenuAvailabilityPeriod() {
+        when(userRepository.findById(10L)).thenReturn(Optional.of(customer));
+        when(storeRepository.findById(20L)).thenReturn(Optional.of(store));
+        when(menuRepository.findByIdAndStoreIdAndActiveTrueAndDeletedAtIsNull(30L, 20L))
+                .thenReturn(Optional.of(menu));
+        when(addressRepository.findByIdAndUserId(40L, 10L)).thenReturn(Optional.of(address));
+        when(eligibilityService.require(store, address))
+                .thenReturn(new StoreEligibilityService.Eligibility(BigDecimal.ONE, 1, 10));
+        menu.setAvailableFrom(startDate);
+        menu.setAvailableUntil(startDate.plusDays(3));
+
+        assertThatThrownBy(() -> service.previewSubscription(10L, validRequest()))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode())
+                                .isEqualTo("MENU_NOT_AVAILABLE_FOR_PERIOD"));
+    }
+
+    @Test
     void previewAndCreatedSubscriptionUseTheSameVersionedPriceAndCouponTotal() {
         stubPreparation();
         var request = validRequest();

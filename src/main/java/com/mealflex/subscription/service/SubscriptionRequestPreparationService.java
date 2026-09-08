@@ -68,6 +68,11 @@ public class SubscriptionRequestPreparationService {
                     "Bu mağaza için maksimum kişi sayısı " + store.getMaxPersonCount() + "'dir.");
         }
         SubscriptionDatePolicy.validateRange(request.getStartDate(), request.getEndDate());
+        if ((menu.getAvailableFrom() != null && request.getStartDate().isBefore(menu.getAvailableFrom()))
+                || (menu.getAvailableUntil() != null && request.getEndDate().isAfter(menu.getAvailableUntil()))) {
+            throw new BusinessException("MENU_NOT_AVAILABLE_FOR_PERIOD",
+                    "Seçilen menü abonelik tarih aralığının tamamında sunulmuyor.");
+        }
         if (request.getStartDate().isBefore(SubscriptionDatePolicy.today().plusDays(MIN_LEAD_DAYS))) {
             throw new BusinessException("INVALID_START_DATE",
                     "Başlangıç tarihi en az " + MIN_LEAD_DAYS + " gün sonrası olmalıdır.");

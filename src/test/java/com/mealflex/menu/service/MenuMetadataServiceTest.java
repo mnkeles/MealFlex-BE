@@ -14,6 +14,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.Optional;
 import java.util.Set;
 import java.util.List;
@@ -106,6 +107,25 @@ class MenuMetadataServiceTest {
         menuService.createMenu(9L, 5L, request);
 
         verify(menuVersionService, times(1)).capture(any(), eq(9L));
+    }
+
+    @Test
+    void menuAvailabilityEndCannotPrecedeStart() {
+        Store store = Store.builder().name("Test Mağazası").build();
+        store.setId(5L);
+        CreateMenuRequest request = new CreateMenuRequest();
+        request.setName("Dönem Menüsü");
+        request.setPricePerPerson(BigDecimal.TEN);
+        request.setAvailableFrom(LocalDate.of(2026, 9, 14));
+        request.setAvailableUntil(LocalDate.of(2026, 9, 13));
+        when(storeRepository.findByIdAndSellerUserIdAndDeletedAtIsNull(5L, 9L))
+                .thenReturn(Optional.of(store));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> menuService.createMenu(9L, 5L, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Menü bitiş tarihi başlangıç tarihinden önce olamaz.");
+        verify(menuRepository, never()).save(any());
     }
 
     @Test

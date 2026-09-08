@@ -27,6 +27,10 @@ public class CreateMenuRequest {
 
     private LocalDate priceEffectiveFrom;
 
+    private LocalDate availableFrom;
+
+    private LocalDate availableUntil;
+
     private String allergenInfo;
 
     private String imageUrl;

@@ -257,6 +257,47 @@ class StoreServiceTest {
     }
 
     @Test
+    void closedDateRangeAddsMissingDatesWithoutDuplicatingExistingDay() {
+        Store store = Store.builder().name("Test Mutfağı").status(StoreStatus.ACTIVE).build();
+        store.setId(5L);
+        LocalDate start = com.mealflex.subscription.service.SubscriptionDatePolicy.today().plusDays(2);
+        LocalDate end = start.plusDays(2);
+        StoreClosedDate existing = StoreClosedDate.builder().store(store)
+                .closedDate(start.plusDays(1)).reason("Eski kayıt").build();
+        when(storeRepository.findByIdAndSellerUserIdAndDeletedAtIsNull(5L, 99L))
+                .thenReturn(Optional.of(store));
+        when(closedDateRepository.findByStoreIdAndClosedDateBetween(5L, start, end))
+                .thenReturn(List.of(existing));
+        when(closedDateRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        List<com.mealflex.store.dto.ClosedDateResponse> result =
+                service.addClosedDateRange(99L, 5L, start, end, "Yıllık bakım");
+
+        ArgumentCaptor<List<StoreClosedDate>> dates = ArgumentCaptor.forClass(List.class);
+        verify(closedDateRepository).saveAll(dates.capture());
+        assertThat(dates.getValue()).extracting(StoreClosedDate::getClosedDate)
+                .containsExactly(start, end);
+        assertThat(dates.getValue()).extracting(StoreClosedDate::getReason)
+                .containsOnly("Yıllık bakım");
+        assertThat(result).hasSize(2);
+    }
+
+    @Test
+    void closedDateRangeIsLimitedToNinetyDays() {
+        Store store = Store.builder().name("Test Mutfağı").status(StoreStatus.ACTIVE).build();
+        store.setId(5L);
+        LocalDate start = com.mealflex.subscription.service.SubscriptionDatePolicy.today().plusDays(2);
+        when(storeRepository.findByIdAndSellerUserIdAndDeletedAtIsNull(5L, 99L))
+                .thenReturn(Optional.of(store));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> service.addClosedDateRange(99L, 5L, start, start.plusDays(90), "Tadilat"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Tek seferde en fazla 90 kapalı gün ekleyebilirsiniz.");
+        verify(closedDateRepository, never()).saveAll(any());
+    }
+
+    @Test
     void periodOffersOnlyConfiguredTimesCompatibleWithEveryServiceDay() {
         Store store = Store.builder().name("Test Mutfağı").status(StoreStatus.ACTIVE).build();
         store.setId(5L);

@@ -181,6 +181,16 @@ public class SellerStoreController {
                 .body(storeService.addClosedDate(principal.getId(), storeId, request.getClosedDate(), request.getReason()));
     }
 
+    @PostMapping("/stores/{storeId}/closed-date-ranges")
+    @Operation(summary = "Kapalı tarih aralığı ekle")
+    public ResponseEntity<List<ClosedDateResponse>> addClosedDateRange(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable Long storeId,
+            @Valid @RequestBody com.mealflex.store.dto.ClosedDateRangeRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(storeService.addClosedDateRange(
+                principal.getId(), storeId, request.getStartDate(), request.getEndDate(), request.getReason()));
+    }
+
     @DeleteMapping("/stores/{storeId}/closed-dates/{closedDateId}")
     @Operation(summary = "Kapalı gün sil")
     public ResponseEntity<Void> deleteClosedDate(

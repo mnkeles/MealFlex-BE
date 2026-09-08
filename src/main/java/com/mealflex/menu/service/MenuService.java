@@ -78,6 +78,7 @@ public class MenuService {
                     "Menü oluşturmak için mağaza seçmelisiniz.");
         }
         Store store = stores.getFirst();
+        validateAvailability(request);
 
         Menu menu = Menu.builder()
                 .store(store)
@@ -85,6 +86,8 @@ public class MenuService {
                 .description(request.getDescription())
                 .pricePerPerson(request.getPricePerPerson())
                 .priceEffectiveFrom(com.mealflex.subscription.service.CommerceDateRules.menuEffectiveDate(request.getPriceEffectiveFrom(), com.mealflex.subscription.service.SubscriptionDatePolicy.today()))
+                .availableFrom(request.getAvailableFrom())
+                .availableUntil(request.getAvailableUntil())
                 .allergenInfo(request.getAllergenInfo())
                 .imageUrl(request.getImageUrl())
                 .dietTags(validated(request.getDietTags(), com.mealflex.store.service.StoreService.DIET_TAGS, "Diyet etiketi"))
@@ -122,6 +125,7 @@ public class MenuService {
     public MenuResponse createMenu(Long userId, Long storeId, CreateMenuRequest request) {
         Store store = storeRepository.findByIdAndSellerUserIdAndDeletedAtIsNull(storeId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Mağaza", storeId));
+        validateAvailability(request);
 
         Menu menu = Menu.builder()
                 .store(store)
@@ -129,6 +133,8 @@ public class MenuService {
                 .description(request.getDescription())
                 .pricePerPerson(request.getPricePerPerson())
                 .priceEffectiveFrom(com.mealflex.subscription.service.CommerceDateRules.menuEffectiveDate(request.getPriceEffectiveFrom(), com.mealflex.subscription.service.SubscriptionDatePolicy.today()))
+                .availableFrom(request.getAvailableFrom())
+                .availableUntil(request.getAvailableUntil())
                 .allergenInfo(request.getAllergenInfo())
                 .imageUrl(request.getImageUrl())
                 .dietTags(validated(request.getDietTags(), com.mealflex.store.service.StoreService.DIET_TAGS, "Diyet etiketi"))
@@ -156,11 +162,14 @@ public class MenuService {
     @Transactional
     public MenuResponse updateMenu(Long userId, Long menuId, CreateMenuRequest request) {
         Menu menu = getMenuForSeller(userId, menuId);
+        validateAvailability(request);
 
         menu.setName(request.getName());
         menu.setDescription(request.getDescription());
         menu.setPricePerPerson(request.getPricePerPerson());
         menu.setPriceEffectiveFrom(com.mealflex.subscription.service.CommerceDateRules.menuEffectiveDate(request.getPriceEffectiveFrom(), com.mealflex.subscription.service.SubscriptionDatePolicy.today()));
+        menu.setAvailableFrom(request.getAvailableFrom());
+        menu.setAvailableUntil(request.getAvailableUntil());
         menu.setAllergenInfo(request.getAllergenInfo());
         if (request.getImageUrl() != null) menu.setImageUrl(request.getImageUrl());
         if (request.getDietTags() != null) menu.setDietTags(validated(request.getDietTags(), com.mealflex.store.service.StoreService.DIET_TAGS, "Diyet etiketi"));
@@ -260,6 +269,7 @@ public class MenuService {
         Menu copy = menuRepository.save(Menu.builder().store(source.getStore()).name(source.getName() + " (Kopya)")
                 .description(source.getDescription()).pricePerPerson(source.getPricePerPerson())
                 .priceEffectiveFrom(source.getPriceEffectiveFrom()).imageUrl(source.getImageUrl())
+                .availableFrom(source.getAvailableFrom()).availableUntil(source.getAvailableUntil())
                 .allergenInfo(source.getAllergenInfo()).dietTags(new LinkedHashSet<>(source.getDietTags()))
                 .allergens(new LinkedHashSet<>(source.getAllergens())).active(false).build());
         menuItemRepository.findByMenuIdOrderBySortOrder(source.getId()).forEach(item -> menuItemRepository.save(MenuItem.builder()
@@ -327,6 +337,8 @@ public class MenuService {
                 .description(menu.getDescription())
                 .pricePerPerson(menu.getPricePerPerson())
                 .priceEffectiveFrom(menu.getPriceEffectiveFrom())
+                .availableFrom(menu.getAvailableFrom())
+                .availableUntil(menu.getAvailableUntil())
                 .imageUrl(menu.getImageUrl())
                 .galleryImages(galleryImages)
                 .allergenInfo(menu.getAllergenInfo())
@@ -335,6 +347,15 @@ public class MenuService {
                 .active(menu.isActive())
                 .items(items)
                 .build();
+    }
+
+    private void validateAvailability(CreateMenuRequest request) {
+        java.time.LocalDate start = request.getAvailableFrom();
+        java.time.LocalDate end = request.getAvailableUntil();
+        if (start != null && end != null && end.isBefore(start)) {
+            throw new BusinessException("INVALID_MENU_AVAILABILITY_RANGE",
+                    "Menü bitiş tarihi başlangıç tarihinden önce olamaz.");
+        }
     }
 
     private Set<String> validated(Set<String> values, Set<String> allowed, String label) {

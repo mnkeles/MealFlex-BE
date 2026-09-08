@@ -393,6 +393,47 @@ public class StoreService {
     }
 
     @Transactional
+    public List<ClosedDateResponse> addClosedDateRange(Long userId, Long storeId, LocalDate startDate,
+                                                       LocalDate endDate, String reason) {
+        Store store = getStoreForSeller(userId, storeId);
+        LocalDate earliestAllowedDate = com.mealflex.subscription.service.SubscriptionDatePolicy.today()
+                .plusDays(CLOSED_DATE_NOTICE_DAYS);
+        if (startDate.isBefore(earliestAllowedDate)) {
+            throw new BusinessException("CLOSED_DATE_NOTICE_REQUIRED",
+                    "Kapalı gün en az 2 gün önceden tanımlanmalıdır.");
+        }
+        if (endDate.isBefore(startDate)) {
+            throw new BusinessException("INVALID_CLOSED_DATE_RANGE",
+                    "Bitiş tarihi başlangıç tarihinden önce olamaz.");
+        }
+        long dayCount = java.time.temporal.ChronoUnit.DAYS.between(startDate, endDate) + 1;
+        if (dayCount > 90) {
+            throw new BusinessException("CLOSED_DATE_RANGE_TOO_LONG",
+                    "Tek seferde en fazla 90 kapalı gün ekleyebilirsiniz.");
+        }
+
+        Set<LocalDate> existingDates = closedDateRepository
+                .findByStoreIdAndClosedDateBetween(storeId, startDate, endDate).stream()
+                .map(StoreClosedDate::getClosedDate)
+                .collect(java.util.stream.Collectors.toSet());
+        List<StoreClosedDate> additions = startDate.datesUntil(endDate.plusDays(1))
+                .filter(date -> !existingDates.contains(date))
+                .map(date -> StoreClosedDate.builder()
+                        .store(store)
+                        .closedDate(date)
+                        .reason(reason)
+                        .build())
+                .toList();
+        if (additions.isEmpty()) {
+            throw new BusinessException("ALREADY_EXISTS",
+                    "Seçilen tarih aralığının tamamı zaten kapalı.");
+        }
+        return closedDateRepository.saveAll(additions).stream()
+                .map(date -> new ClosedDateResponse(date.getId(), date.getClosedDate(), date.getReason()))
+                .toList();
+    }
+
+    @Transactional
     public void deleteClosedDate(Long userId, Long storeId, Long closedDateId) {
         getStoreForSeller(userId, storeId);
         StoreClosedDate closedDate = closedDateRepository.findById(closedDateId)

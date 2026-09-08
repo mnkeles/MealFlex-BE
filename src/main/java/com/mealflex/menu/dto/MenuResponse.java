@@ -18,6 +18,8 @@ public class MenuResponse {
     private String description;
     private BigDecimal pricePerPerson;
     private LocalDate priceEffectiveFrom;
+    private LocalDate availableFrom;
+    private LocalDate availableUntil;
     private String imageUrl;
     private List<MenuGalleryImageResponse> galleryImages;
     private String allergenInfo;
