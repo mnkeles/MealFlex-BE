@@ -9,7 +9,7 @@ RUN mvn -B -DskipTests dependency:go-offline
 COPY src ./src
 RUN mvn -B -DskipTests package
 
-FROM eclipse-temurin:21-jre-jammy AS runtime
+FROM eclipse-temurin:25-jre-jammy AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl fontconfig fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/* \
