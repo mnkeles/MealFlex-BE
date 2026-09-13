@@ -99,6 +99,8 @@ public class Subscription extends BaseEntity {
 
     private Instant commercialTermsAcceptedAt;
 
+    private Instant paymentTokenConsentAt;
+
     private Instant approvalDeadlineAt;
 
     @Column(nullable = false)

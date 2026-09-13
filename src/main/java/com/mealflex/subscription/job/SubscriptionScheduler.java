@@ -33,6 +33,8 @@ public class SubscriptionScheduler {
     private final AuditLogRepository auditLogRepository;
     private final SubscriptionEventStream eventStream;
     private final com.mealflex.seller.repository.SellerSlaEventRepository sellerSlaEventRepository;
+    @org.springframework.beans.factory.annotation.Value("${app.payment.payment-completion-hours:24}")
+    private long paymentCompletionHours;
 
     @Scheduled(cron = "0 */15 * * * *", zone = "Europe/Istanbul")
     @Transactional
@@ -50,6 +52,24 @@ public class SubscriptionScheduler {
                     .store(sub.getStore()).subscription(sub).eventType("SUBSCRIPTION_APPROVAL_EXPIRED")
                     .reason("Satıcı onay süresi içinde yanıt vermedi.").occurredAt(now).build());
             eventStream.publish(sub.getStore().getId(),"subscription-sla-expired",java.util.Map.of("subscriptionId",sub.getId(),"status",sub.getStatus().name()));
+        }
+        Instant paymentDeadline = now.minus(java.time.Duration.ofHours(Math.max(1, paymentCompletionHours)));
+        for (Subscription sub : subscriptionRepository.findByStatusAndApprovedAtBefore(
+                SubscriptionStatus.PAYMENT_PENDING, paymentDeadline)) {
+            SubscriptionStatus previous = sub.getStatus();
+            sub.setStatus(SubscriptionStatus.CANCELLED);
+            sub.setCancelledAt(now);
+            sub.setCancellationReason("Satıcı onayından sonra güvenli ödeme süresi içinde tamamlanmadı.");
+            deliveryRepository.findBySubscriptionId(sub.getId()).stream()
+                    .filter(delivery -> delivery.getStatus() != DeliveryStatus.DELIVERED)
+                    .forEach(delivery -> delivery.setStatus(DeliveryStatus.CANCELLED));
+            audit("SUBSCRIPTION_PAYMENT_EXPIRED", sub, previous.name(), SubscriptionStatus.CANCELLED.name());
+            notify(sub, "Ödeme Süresi Doldu", "Abonelik ödemeniz süresi içinde tamamlanmadığı için talep iptal edildi.");
+            notifySeller(sub, "Abonelik Ödeme Süresi Doldu",
+                    "#" + sub.getId() + " numaralı abonelik ödemesi tamamlanmadığı için rezervasyon kaldırıldı.");
+            subscriptionRepository.save(sub);
+            eventStream.publish(sub.getStore().getId(), "subscription-payment-expired",
+                    java.util.Map.of("subscriptionId", sub.getId(), "status", sub.getStatus().name()));
         }
     }
 

@@ -4,6 +4,7 @@ import com.mealflex.audit.entity.AuditLog;
 import com.mealflex.audit.repository.AuditLogRepository;
 import com.mealflex.common.exception.BusinessException;
 import com.mealflex.common.exception.ResourceNotFoundException;
+import com.mealflex.common.validation.RejectionReasonPolicy;
 import com.mealflex.notification.entity.Notification;
 import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.payment.service.PaymentService;
@@ -33,6 +34,8 @@ public class SubscriptionLifecycleService {
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionDeliveryPlanningService deliveryPlanningService;
     private final PaymentService paymentService;
+    @org.springframework.beans.factory.annotation.Value("${app.payment.provider:MOCK}")
+    private String paymentProviderName = "MOCK";
     private final AuditLogRepository auditLogRepository;
     private final NotificationEventService notificationEventService;
     private final SellerStoreAccessService storeAccessService;
@@ -55,6 +58,18 @@ public class SubscriptionLifecycleService {
             storeCapacityService.reserveOrThrow(subscription.getStore().getId(), serviceDays, subscription.getPersonCount());
         }
         deliveryPlanningService.ensureApprovedDeliveries(subscription);
+        if ("IYZICO".equalsIgnoreCase(paymentProviderName)) {
+            subscription.setStatus(SubscriptionStatus.PAYMENT_PENDING);
+            subscription.setApprovedAt(Instant.now());
+            subscription = subscriptionRepository.save(subscription);
+            recordSellerDecision(subscription, "SUBSCRIPTION_APPROVED");
+            audit(userId, "SUBSCRIPTION_APPROVED", subscription.getId(),
+                    previousStatus.name(), SubscriptionStatus.PAYMENT_PENDING.name());
+            notifyCustomer(subscription, "Abonelik Talebiniz Onaylandı",
+                    subscription.getStore().getName() + " talebinizi kabul etti. Aboneliği başlatmak için güvenli iyzico ödemesini tamamlayın.");
+            log.info("Subscription #{} approved by seller and awaits iyzico checkout", subscriptionId);
+            return subscription;
+        }
         subscription.setStatus(SubscriptionStatus.APPROVED);
         subscription.setApprovedAt(Instant.now());
         subscription = subscriptionRepository.save(subscription);
@@ -69,6 +84,7 @@ public class SubscriptionLifecycleService {
 
     @Transactional
     public Subscription reject(Long userId, Long subscriptionId, String reason) {
+        String normalizedReason = RejectionReasonPolicy.validateAndNormalize(reason);
         Subscription subscription = getForSeller(userId, subscriptionId);
         if (!isAwaitingSellerDecision(subscription.getStatus())) {
             throw new BusinessException("INVALID_STATUS",
@@ -78,14 +94,14 @@ public class SubscriptionLifecycleService {
         SubscriptionStatus previousStatus = subscription.getStatus();
         subscription.setStatus(SubscriptionStatus.REJECTED);
         subscription.setRejectedAt(Instant.now());
-        subscription.setCancellationReason(reason);
+        subscription.setCancellationReason(normalizedReason);
         subscription = subscriptionRepository.save(subscription);
         recordSellerDecision(subscription, "SUBSCRIPTION_REJECTED");
         deliveryPlanningService.cancelOutstandingDeliveries(subscription.getId(), SubscriptionDatePolicy.today());
         audit(userId, "SUBSCRIPTION_REJECTED", subscription.getId(),
                 previousStatus.name(), SubscriptionStatus.REJECTED.name());
         notifyCustomer(subscription, "Abonelik Talebiniz Reddedildi",
-                subscription.getStore().getName() + " talebinizi reddetti. Neden: " + reason);
+                subscription.getStore().getName() + " talebinizi reddetti. Neden: " + normalizedReason);
         log.info("Subscription #{} rejected by seller userId: {}", subscriptionId, userId);
         return subscription;
     }
@@ -110,7 +126,9 @@ public class SubscriptionLifecycleService {
         subscription.setCancellationReason(reason);
         subscription = subscriptionRepository.save(subscription);
         deliveryPlanningService.cancelOutstandingDeliveries(subscription.getId(), SubscriptionDatePolicy.today());
-        paymentService.refundForCancellation(subscription, userId, reason);
+        if (previousStatus != SubscriptionStatus.PAYMENT_PENDING) {
+            paymentService.refundForCancellation(subscription, userId, reason);
+        }
         payoutService.recheckAfterCancellation(subscription.getId());
         audit(userId, "SUBSCRIPTION_CANCELLED", subscription.getId(),
                 previousStatus.name(), SubscriptionStatus.CANCELLED.name());
@@ -128,7 +146,7 @@ public class SubscriptionLifecycleService {
     @Transactional
     public Subscription cancelBySeller(Long userId, Long subscriptionId, String reason) {
         Subscription subscription = getForSeller(userId, subscriptionId);
-        if (!List.of(SubscriptionStatus.APPROVED, SubscriptionStatus.ACTIVE,
+        if (!List.of(SubscriptionStatus.PAYMENT_PENDING, SubscriptionStatus.APPROVED, SubscriptionStatus.ACTIVE,
                 SubscriptionStatus.PAYMENT_SUSPENDED).contains(subscription.getStatus())) {
             throw new BusinessException("INVALID_STATUS",
                     "Yalnız onaylanmış veya devam eden abonelikler satıcı tarafından iptal edilebilir.");
@@ -140,7 +158,9 @@ public class SubscriptionLifecycleService {
         subscription.setCancellationReason("Satıcı iptali: " + normalizedReason);
         subscription = subscriptionRepository.save(subscription);
         deliveryPlanningService.cancelOutstandingDeliveries(subscription.getId(), SubscriptionDatePolicy.today());
-        paymentService.refundForCancellation(subscription, userId, normalizedReason);
+        if (previousStatus != SubscriptionStatus.PAYMENT_PENDING) {
+            paymentService.refundForCancellation(subscription, userId, normalizedReason);
+        }
         payoutService.recheckAfterCancellation(subscription.getId());
         sellerSlaEventRepository.save(SellerSlaEvent.builder()
                 .store(subscription.getStore())

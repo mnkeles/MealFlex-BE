@@ -4,6 +4,7 @@ import com.mealflex.address.entity.Address;
 import com.mealflex.audit.entity.AuditLog;
 import com.mealflex.audit.repository.AuditLogRepository;
 import com.mealflex.common.exception.*;
+import com.mealflex.common.validation.RejectionReasonPolicy;
 import com.mealflex.delivery.entity.*;
 import com.mealflex.delivery.repository.SubscriptionDeliveryRepository;
 import com.mealflex.menu.entity.Menu;
@@ -38,6 +39,7 @@ public class DeliveryModificationService {
     private final SellerStoreAccessService storeAccessService;
     private final SubscriptionEventStream eventStream;
     private final StoreCapacityService storeCapacityService;
+    private final com.mealflex.platform.service.PlatformSettingService platformSettingService;
 
     @Transactional(readOnly=true)
     public DeliveryModificationResponse preview(Long userId, Long subscriptionId, Long deliveryId, ModifyDeliveryRequest request) {
@@ -150,9 +152,7 @@ public class DeliveryModificationService {
 
     @Transactional
     public DeliveryModificationRequestResponse rejectRequest(Long sellerUserId, Long requestId, String reason) {
-        if (reason == null || reason.isBlank() || reason.trim().length() > 500) {
-            throw new BusinessException("INVALID_REJECTION_REASON", "Ret gerekçesi zorunludur ve en fazla 500 karakter olabilir.");
-        }
+        String normalizedReason = RejectionReasonPolicy.validateAndNormalize(reason);
         DeliveryModificationHistory history = historyRepository.findById(requestId)
                 .orElseThrow(() -> new ResourceNotFoundException("Teslimat değişikliği talebi", requestId));
         Subscription subscription = history.getSubscription();
@@ -161,13 +161,13 @@ public class DeliveryModificationService {
             throw new BusinessException("DELIVERY_CHANGE_ALREADY_DECIDED", "Bu değişiklik talebi daha önce karara bağlanmış.");
         }
         history.setRequestStatus(DeliveryModificationRequestStatus.REJECTED);
-        history.setDecisionReason(reason.trim());
+        history.setDecisionReason(normalizedReason);
         history.setDecidedAt(Instant.now()); history.setDecidedByUserId(sellerUserId);
         historyRepository.save(history);
         auditLogRepository.save(AuditLog.builder().actorId(sellerUserId).action("DELIVERY_CHANGE_REJECTED").entityType("DELIVERY").entityId(history.getDelivery().getId())
-                .newValue("requestId=" + history.getId() + ",reason=" + reason.trim()).timestamp(Instant.now()).build());
+                .newValue("requestId=" + history.getId() + ",reason=" + normalizedReason).timestamp(Instant.now()).build());
         notificationEventService.publish(Notification.builder().user(subscription.getCustomer()).title("Teslimat değişikliği reddedildi")
-                .message(subscription.getStore().getName() + " saat veya kişi sayısı değişikliği talebinizi reddetti. Neden: " + reason.trim())
+                .message(subscription.getStore().getName() + " saat veya kişi sayısı değişikliği talebinizi reddetti. Neden: " + normalizedReason)
                 .referenceType("DELIVERY_CHANGE_REQUEST").referenceId(subscription.getId()).build());
         return toRequestResponse(history);
     }
@@ -180,7 +180,7 @@ public class DeliveryModificationService {
         Subscription s = d.getSubscription();
         if (!s.getId().equals(subscriptionId) || !s.getCustomer().getId().equals(userId)) throw new BusinessException("UNAUTHORIZED_ACCESS", "Bu teslimat size ait değil.", HttpStatus.FORBIDDEN);
         if (!List.of(SubscriptionStatus.APPROVED, SubscriptionStatus.ACTIVE).contains(s.getStatus()) || d.getStatus()!=DeliveryStatus.SCHEDULED) throw new BusinessException("INVALID_DELIVERY_STATUS", "Yalnız gelecek planlanmış teslimatlar değiştirilebilir.");
-        int cutoff=Optional.ofNullable(s.getStore().getChangeCutoffHours()).orElse(24); ZonedDateTime deadline=ZonedDateTime.of(d.getDeliveryDate(),d.getDeliveryTime(),ZoneId.of("Europe/Istanbul")).minusHours(cutoff);
+        int cutoff=Optional.ofNullable(s.getStore().getChangeCutoffHours()).orElseGet(this::defaultChangeCutoffHours); ZonedDateTime deadline=ZonedDateTime.of(d.getDeliveryDate(),d.getDeliveryTime(),ZoneId.of("Europe/Istanbul")).minusHours(cutoff);
         if(!ZonedDateTime.now(ZoneId.of("Europe/Istanbul")).isBefore(deadline)) throw new BusinessException("CHANGE_CUTOFF_PASSED","Teslimat değişiklik süresi doldu.");
         if (r.menuId() != null) throw new BusinessException("DELIVERY_CHANGE_FIELD_NOT_ALLOWED", "Teslimat değişikliği talebinde menü güncellenemez.");
         if (r.addressId() != null && !r.addressId().equals(d.getAddress().getId())) throw new BusinessException("DELIVERY_ADDRESS_CHANGE_NOT_ALLOWED", "Teslimat değişikliği talebinde adres değiştirilemez.");
@@ -208,13 +208,15 @@ public class DeliveryModificationService {
                 || delivery.getStatus() != DeliveryStatus.SCHEDULED) {
             throw new BusinessException("INVALID_DELIVERY_STATUS", "Teslimat artık değiştirilemez.");
         }
-        int cutoff = Optional.ofNullable(subscription.getStore().getChangeCutoffHours()).orElse(24);
+        int cutoff = Optional.ofNullable(subscription.getStore().getChangeCutoffHours()).orElseGet(this::defaultChangeCutoffHours);
         ZonedDateTime deadline = ZonedDateTime.of(delivery.getDeliveryDate(), delivery.getDeliveryTime(), ZoneId.of("Europe/Istanbul"))
                 .minusHours(cutoff);
         if (!ZonedDateTime.now(ZoneId.of("Europe/Istanbul")).isBefore(deadline)) {
             throw new BusinessException("CHANGE_CUTOFF_PASSED", "Teslimat değişiklik süresi doldu.");
         }
     }
+
+    private int defaultChangeCutoffHours() { return platformSettingService.getInt(com.mealflex.platform.service.PlatformSettingService.DEFAULT_DELIVERY_CHANGE_CUTOFF_HOURS, 24); }
 
     private DeliveryModificationRequestResponse toRequestResponse(DeliveryModificationHistory history) {
         User customer = history.getCustomer();

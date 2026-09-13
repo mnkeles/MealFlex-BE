@@ -56,7 +56,14 @@ class StoreServiceTest {
     @Mock private SellerDocumentService sellerDocumentService;
     @Mock private SubscriptionServiceDayChangeService subscriptionServiceDayChangeService;
     @Mock private com.mealflex.seller.service.SellerResponsePerformanceService sellerResponsePerformanceService;
+    @Mock private com.mealflex.platform.service.PlatformSettingService platformSettingService;
     @InjectMocks private StoreService service;
+
+    @org.junit.jupiter.api.BeforeEach
+    void platformSettings() {
+        lenient().when(platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.STORE_CLOSED_DATE_NOTICE_DAYS, 2)).thenReturn(2);
+    }
 
     @Test
     void sellerCannotDeleteAnotherStoresClosedDate() {

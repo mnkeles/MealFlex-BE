@@ -25,7 +25,7 @@ class AdminPlatformConfigurationServiceTest {
     @InjectMocks AdminPlatformConfigurationService service;
 
     @Test void newGlobalRuleClosesThePreviousPeriodAndIsAudited() {
-        LocalDate start = LocalDate.of(2026, 10, 1);
+        LocalDate start = com.mealflex.subscription.service.SubscriptionDatePolicy.today();
         CommissionRule old = CommissionRule.builder().commissionRate(new BigDecimal("0.10"))
                 .commissionVatRate(new BigDecimal("0.20")).effectiveFrom(LocalDate.of(2026,1,1)).active(true).build();
         when(rules.findActiveGlobal()).thenReturn(List.of(old));
@@ -39,6 +39,17 @@ class AdminPlatformConfigurationServiceTest {
         assertThat(old.getEffectiveTo()).isEqualTo(start.minusDays(1));
         assertThat(response.storeName()).isEqualTo("Tüm mağazalar");
         verify(rules).saveAll(List.of(old));
+        verify(settings).updateCommissionRate(new BigDecimal("0.12"));
         verify(audits).save(argThat(a -> a.getAction().equals("COMMISSION_RULE_CREATED")));
+    }
+
+    @Test void scheduledGlobalRuleIsCopiedToPlatformSettingsWhenItsDateArrives() {
+        CommissionRule rule = CommissionRule.builder().commissionRate(new BigDecimal("0.14"))
+                .commissionVatRate(new BigDecimal("0.20")).effectiveFrom(LocalDate.now()).active(true).build();
+        when(rules.findApplicableGlobal(any())).thenReturn(List.of(rule));
+
+        service.activateScheduledGlobalCommissionRate();
+
+        verify(settings).updateCommissionRate(new BigDecimal("0.14"));
     }
 }

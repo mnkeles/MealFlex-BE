@@ -25,6 +25,10 @@ import com.mealflex.review.repository.ReviewRepository;
 import com.mealflex.payment.service.PaymentService;
 import com.mealflex.campaign.service.CampaignService;
 import com.mealflex.subscription.entity.Subscription;
+import com.mealflex.subscription.entity.SubscriptionExtensionRequestStatus;
+import com.mealflex.subscription.entity.DeliveryModificationRequestStatus;
+import com.mealflex.subscription.repository.DeliveryModificationHistoryRepository;
+import com.mealflex.subscription.repository.SubscriptionExtensionRequestRepository;
 import com.mealflex.subscription.entity.SubscriptionStatus;
 import com.mealflex.subscription.repository.SubscriptionRepository;
 import com.mealflex.user.entity.User;
@@ -61,11 +65,16 @@ public class SubscriptionService {
     private final AuditLogRepository auditLogRepository;
     private final SellerStoreAccessService storeAccessService;
     private final PaymentService paymentService;
+    @org.springframework.beans.factory.annotation.Value("${app.payment.provider:MOCK}")
+    private String paymentProviderName;
     private final SubscriptionEventStream eventStream;
     private final MenuVersionService menuVersionService;
     private final CampaignService campaignService;
     private final SubscriptionRequestPreparationService preparationService;
     private final SubscriptionLifecycleService lifecycleService;
+    private final SubscriptionRenewalService renewalService;
+    private final SubscriptionExtensionRequestRepository extensionRequestRepository;
+    private final DeliveryModificationHistoryRepository deliveryModificationHistoryRepository;
     private final com.mealflex.platform.service.PlatformSettingService platformSettingService;
 
     @Transactional
@@ -83,13 +92,18 @@ public class SubscriptionService {
             return toResponse(existing.get());
         }
         PreparedSubscription prepared = preparationService.prepare(userId, request);
-        if (request.getPaymentMethodId() == null) {
+        if (request.getPaymentMethodId() == null && !"IYZICO".equalsIgnoreCase(paymentProviderName)) {
             throw new BusinessException("PAYMENT_METHOD_REQUIRED", "Abonelik talebi için bir ödeme yöntemi seçmelisiniz.");
         }
         if (!request.isCommercialTermsAccepted()) {
             throw new BusinessException("COMMERCIAL_TERMS_REQUIRED", "Mesafeli satış ve abonelik koşullarını onaylamalısınız.");
         }
-        var paymentMethod = paymentService.requireOwnedMethod(userId, request.getPaymentMethodId());
+        if ("IYZICO".equalsIgnoreCase(paymentProviderName) && !request.isRecurringPaymentConsent()) {
+            throw new BusinessException("RECURRING_PAYMENT_CONSENT_REQUIRED",
+                    "Haftalık tahsilatlar için kartın iyzico'da saklanmasına onay vermelisiniz.");
+        }
+        var paymentMethod = request.getPaymentMethodId() == null
+                ? null : paymentService.requireOwnedMethod(userId, request.getPaymentMethodId());
 
         var menuVersion = menuVersionService.forSubscription(prepared.menu(), request.getStartDate(), userId);
         BigDecimal snapshotTotal = menuVersion.getPricePerPerson().multiply(BigDecimal.valueOf(request.getPersonCount()))
@@ -117,6 +131,7 @@ public class SubscriptionService {
                 .idempotencyKey(normalizedKey)
                 .paymentMethod(paymentMethod)
                 .commercialTermsAcceptedAt(Instant.now())
+                .paymentTokenConsentAt("IYZICO".equalsIgnoreCase(paymentProviderName) ? Instant.now() : null)
                 .approvalDeadlineAt(Instant.now().plus(java.time.Duration.ofHours(platformSettingService.getInt(
                         com.mealflex.platform.service.PlatformSettingService.APPROVAL_SLA_HOURS, 72))))
                 .renewalPeriodDays((int) java.time.temporal.ChronoUnit.DAYS.between(
@@ -438,8 +453,14 @@ public class SubscriptionService {
                 .build();
     }
 
-    public SubscriptionResponse toSubscriptionResponse(Subscription subscription) {
-        return toResponse(subscription);
+    @Transactional
+    public SubscriptionResponse extendSubscription(Long userId, Long subscriptionId, LocalDate newEndDate) {
+        return toResponse(renewalService.extend(userId, subscriptionId, newEndDate));
+    }
+
+    @Transactional
+    public SubscriptionResponse setAutoRenew(Long userId, Long subscriptionId, boolean enabled) {
+        return toResponse(renewalService.setAutoRenew(userId, subscriptionId, enabled));
     }
 
     public org.springframework.web.servlet.mvc.method.annotation.SseEmitter subscribeToStoreEvents(Long userId, Long storeId) {
@@ -450,7 +471,13 @@ public class SubscriptionService {
     @Transactional(readOnly = true)
     public long unreadPendingCount(Long userId, Long storeId) {
         storeAccessService.requireOwnedStore(userId, storeId);
-        return subscriptionRepository.countByStoreIdAndStatusInAndSellerViewedAtIsNull(storeId, List.of(SubscriptionStatus.PENDING_APPROVAL));
+        long subscriptionCount = subscriptionRepository.countByStoreIdAndStatusIn(
+                storeId, List.of(SubscriptionStatus.PENDING_APPROVAL));
+        long extensionCount = extensionRequestRepository.countPendingByStoreId(
+                storeId, SubscriptionExtensionRequestStatus.PENDING);
+        long deliveryChangeCount = deliveryModificationHistoryRepository.countPendingByStoreId(
+                storeId, DeliveryModificationRequestStatus.PENDING);
+        return subscriptionCount + extensionCount + deliveryChangeCount;
     }
 
     @Transactional

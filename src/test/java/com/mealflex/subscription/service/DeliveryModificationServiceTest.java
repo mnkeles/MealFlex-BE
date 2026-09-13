@@ -50,6 +50,7 @@ class DeliveryModificationServiceTest {
     @Mock SellerStoreAccessService storeAccessService;
     @Mock SubscriptionEventStream eventStream;
     @Mock StoreCapacityService storeCapacityService;
+    @Mock com.mealflex.platform.service.PlatformSettingService platformSettingService;
     @InjectMocks DeliveryModificationService service;
     private User customer; private Store store; private Subscription subscription; private SubscriptionDelivery delivery;
 

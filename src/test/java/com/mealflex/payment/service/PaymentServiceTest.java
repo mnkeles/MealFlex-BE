@@ -7,6 +7,7 @@ import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.payment.entity.*;
 import com.mealflex.payment.dto.CreatePaymentMethodRequest;
 import com.mealflex.payment.provider.PaymentProvider;
+import com.mealflex.payment.provider.StoredCardGateway;
 import com.mealflex.payment.repository.*;
 import com.mealflex.store.entity.Store;
 import com.mealflex.store.service.SellerStoreAccessService;
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.Instant;
@@ -43,10 +45,17 @@ class PaymentServiceTest {
     @Mock PayoutRefundAdjustmentService payoutRefundAdjustmentService;
     @Mock ProviderOperationService providerOperationService;
     @Mock com.mealflex.subscription.repository.DeliveryModificationHistoryRepository modificationRepository;
+    @Mock com.mealflex.platform.service.PlatformSettingService platformSettingService;
+    @Mock ObjectProvider<StoredCardGateway> storedCardGatewayProvider;
+    @Mock StoredCardGateway storedCardGateway;
     @InjectMocks PaymentService service;
 
     @BeforeEach
     void providerOperationPassThrough() {
+        lenient().when(platformSettingService.getCommissionRate())
+                .thenReturn(new BigDecimal("0.1200"));
+        lenient().when(platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.PAYMENT_MAX_ATTEMPTS, 3)).thenReturn(3);
         lenient().when(providerOperationService.charge(any(), any(), anyString(), any(), anyString(), anyString()))
                 .thenAnswer(invocation -> new ProviderOperationService.ChargeExecution(501L,
                         provider.charge(invocation.getArgument(2), invocation.getArgument(3),
@@ -129,6 +138,50 @@ class PaymentServiceTest {
                 .isInstanceOf(com.mealflex.common.exception.BusinessException.class)
                 .hasMessageContaining("abonelikte kullanılıyor");
 
+        verify(methodRepository, never()).save(any());
+    }
+
+    @Test
+    void iyzicoCardIsDeletedRemotelyBeforeLocalDeactivation() {
+        PaymentMethod method = paymentFixture(PaymentStatus.SUCCEEDED).getPaymentMethod();
+        method.setProvider("IYZICO");
+        method.setProviderCustomerToken("customer-token");
+        method.setActive(true);
+        method.setDefaultMethod(true);
+        when(methodRepository.findByIdAndCustomerIdAndActiveTrue(4L, 1L)).thenReturn(Optional.of(method));
+        when(subscriptionRepository.existsByPaymentMethodIdAndStatusIn(eq(4L), anyList())).thenReturn(false);
+        when(storedCardGatewayProvider.getIfAvailable()).thenReturn(storedCardGateway);
+        when(storedCardGateway.delete(eq("customer-token"), eq("tok_test"), anyString()))
+                .thenAnswer(invocation -> new StoredCardGateway.DeleteResult(true,
+                        invocation.getArgument(2), null, null));
+        when(methodRepository.findFirstByCustomerIdAndActiveTrueOrderByDefaultMethodDescCreatedAtDesc(1L))
+                .thenReturn(Optional.empty());
+
+        service.deleteMethod(1L, 4L);
+
+        verify(storedCardGateway).delete(eq("customer-token"), eq("tok_test"), anyString());
+        assertThat(method.isActive()).isFalse();
+        assertThat(method.isDefaultMethod()).isFalse();
+        verify(methodRepository).save(method);
+    }
+
+    @Test
+    void failedIyzicoDeletionKeepsLocalCardActive() {
+        PaymentMethod method = paymentFixture(PaymentStatus.SUCCEEDED).getPaymentMethod();
+        method.setProvider("IYZICO");
+        method.setProviderCustomerToken("customer-token");
+        method.setActive(true);
+        when(methodRepository.findByIdAndCustomerIdAndActiveTrue(4L, 1L)).thenReturn(Optional.of(method));
+        when(subscriptionRepository.existsByPaymentMethodIdAndStatusIn(eq(4L), anyList())).thenReturn(false);
+        when(storedCardGatewayProvider.getIfAvailable()).thenReturn(storedCardGateway);
+        when(storedCardGateway.delete(eq("customer-token"), eq("tok_test"), anyString()))
+                .thenReturn(new StoredCardGateway.DeleteResult(false, "other", "error", "provider detail"));
+
+        assertThatThrownBy(() -> service.deleteMethod(1L, 4L))
+                .isInstanceOf(com.mealflex.common.exception.BusinessException.class)
+                .hasMessage("Kart iyzico tarafında kaldırılamadı. Lütfen tekrar deneyin.");
+
+        assertThat(method.isActive()).isTrue();
         verify(methodRepository, never()).save(any());
     }
 
@@ -513,6 +566,28 @@ class PaymentServiceTest {
         assertThat(finance.refunds()).isEqualByComparingTo("25.00");
         assertThat(finance.netEarnings()).isEqualByComparingTo("64.20");
         assertThat(finance.pendingPayout()).isEqualByComparingTo("64.20");
+    }
+
+    @Test
+    void paymentSummaryIncludesStoreCardAndCoveredDeliveryDates() {
+        Payment payment = paymentFixture(PaymentStatus.SUCCEEDED);
+        PaymentAllocation first = allocation(payment, 7L, "40.00");
+        PaymentAllocation second = allocation(payment, 8L, "60.00");
+        second.getDelivery().setDeliveryDate(LocalDate.of(2026, 9, 9));
+        when(subscriptionRepository.findById(4L)).thenReturn(Optional.of(payment.getSubscription()));
+        when(paymentRepository.findBySubscriptionIdOrderByCreatedAtDesc(4L)).thenReturn(List.of(payment));
+        when(refundRepository.findBySubscriptionIdOrderByCreatedAtDesc(4L)).thenReturn(List.of());
+        when(invoiceRepository.findByPaymentId(10L)).thenReturn(Optional.empty());
+        when(allocationRepository.findByPaymentIdOrderByDeliveryDeliveryDateAscIdAsc(10L))
+                .thenReturn(List.of(first, second));
+
+        var summary = service.summary(1L, 4L);
+
+        assertThat(summary.payments()).hasSize(1);
+        assertThat(summary.payments().getFirst().storeName()).isEqualTo("Mağaza");
+        assertThat(summary.payments().getFirst().cardLabel()).isEqualTo("Visa •••• 4242");
+        assertThat(summary.payments().getFirst().coveredDates())
+                .containsExactly(LocalDate.of(2026, 9, 7), LocalDate.of(2026, 9, 9));
     }
 
     private Payment paymentFixture(PaymentStatus status) {

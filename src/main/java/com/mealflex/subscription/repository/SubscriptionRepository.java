@@ -7,13 +7,18 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import jakarta.persistence.LockModeType;
 
 public interface SubscriptionRepository extends JpaRepository<Subscription, Long>, JpaSpecificationExecutor<Subscription> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from Subscription s join fetch s.customer join fetch s.store join fetch s.menu join fetch s.address where s.id=:id")
+    Optional<Subscription> findByIdForPayment(@Param("id") Long id);
     long countByMenuVersionId(Long menuVersionId);
 
     Optional<Subscription> findByCustomerIdAndIdempotencyKey(Long customerId, String idempotencyKey);
@@ -50,7 +55,7 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
     @Query("""
         SELECT COALESCE(SUM(s.personCount), 0) FROM Subscription s
         WHERE s.store.id = :storeId
-        AND s.status IN ('APPROVED', 'ACTIVE')
+        AND s.status IN ('PAYMENT_PENDING', 'APPROVED', 'ACTIVE')
         AND s.startDate <= :date AND s.endDate >= :date
         """)
     int sumPersonCountByStoreIdAndDate(@Param("storeId") Long storeId, @Param("date") LocalDate date);
@@ -75,9 +80,12 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
 
     long countByStoreIdAndStatus(Long storeId, SubscriptionStatus status);
 
+    long countByStoreIdAndStatusIn(Long storeId, List<SubscriptionStatus> statuses);
+
     long countByStoreIdAndStatusInAndSellerViewedAtIsNull(Long storeId, List<SubscriptionStatus> statuses);
 
     List<Subscription> findByStatusInAndApprovalDeadlineAtBefore(List<SubscriptionStatus> statuses, java.time.Instant deadline);
+    List<Subscription> findByStatusAndApprovedAtBefore(SubscriptionStatus status, java.time.Instant deadline);
 
     long countByStatus(SubscriptionStatus status);
 

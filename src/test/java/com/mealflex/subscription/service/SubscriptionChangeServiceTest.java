@@ -32,6 +32,7 @@ class SubscriptionChangeServiceTest {
     @Mock SubscriptionFreezeRepository freezeRepository; @Mock SubscriptionAdjustmentRepository adjustmentRepository;
     @Mock PaymentService paymentService; @Mock NotificationEventService notificationEventService; @Mock AuditLogRepository auditLogRepository;
     @Mock com.mealflex.payment.service.SellerPayoutService sellerPayoutService;
+    @Mock com.mealflex.platform.service.PlatformSettingService platformSettingService;
     @InjectMocks SubscriptionChangeService service;
     private Subscription subscription; private SubscriptionDelivery delivery;
 

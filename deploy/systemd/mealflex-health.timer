@@ -1,0 +1,12 @@
+[Unit]
+Description=Check MealFlex staging every five minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+Unit=mealflex-health.service
+
+[Install]
+WantedBy=timers.target

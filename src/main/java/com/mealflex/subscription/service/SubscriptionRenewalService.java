@@ -31,14 +31,13 @@ import java.util.Locale;
 public class SubscriptionRenewalService {
 
     private static final SecureRandom DELIVERY_CODE_RANDOM = new SecureRandom();
-    private static final int MAX_EXTENSION_DAYS = 730;
-
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionDeliveryRepository deliveryRepository;
     private final SubscriptionDeliveryPlanningService deliveryPlanningService;
     private final StoreCapacityService capacityService;
     private final NotificationEventService notifications;
     private final AuditLogRepository audits;
+    private final com.mealflex.platform.service.PlatformSettingService platformSettingService;
 
     @Transactional
     public Subscription extend(Long customerUserId, Long subscriptionId, LocalDate newEndDate) {
@@ -47,8 +46,16 @@ public class SubscriptionRenewalService {
         if (!subscription.getCustomer().getId().equals(customerUserId)) {
             throw new BusinessException("UNAUTHORIZED_ACCESS", "Bu abonelik size ait değil.", HttpStatus.FORBIDDEN);
         }
-        if (!List.of(SubscriptionStatus.APPROVED, SubscriptionStatus.ACTIVE)
-                .contains(subscription.getStatus())) {
+        return applyExtension(customerUserId, subscription, newEndDate);
+    }
+
+    @Transactional
+    public Subscription extendApproved(Long sellerUserId, Subscription subscription, LocalDate newEndDate) {
+        return applyExtension(sellerUserId, subscription, newEndDate);
+    }
+
+    public List<LocalDate> validateExtension(Subscription subscription, LocalDate newEndDate) {
+        if (!List.of(SubscriptionStatus.APPROVED, SubscriptionStatus.ACTIVE).contains(subscription.getStatus())) {
             throw new BusinessException("INVALID_STATUS", "Yalnız devam eden abonelikler uzatılabilir.");
         }
         LocalDate oldEndDate = subscription.getEndDate();
@@ -56,8 +63,11 @@ public class SubscriptionRenewalService {
             throw new BusinessException("EXTENSION_END_DATE_REQUIRED",
                     "Yeni bitiş tarihi mevcut bitiş tarihinden sonra olmalıdır.");
         }
-        if (newEndDate.isAfter(oldEndDate.plusDays(MAX_EXTENSION_DAYS))) {
-            throw new BusinessException("EXTENSION_RANGE_TOO_LONG", "Abonelik tek işlemde en fazla 730 gün uzatılabilir.");
+        int maximumExtensionDays = platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.SUBSCRIPTION_MAX_EXTENSION_DAYS, 730);
+        if (newEndDate.isAfter(oldEndDate.plusDays(maximumExtensionDays))) {
+            throw new BusinessException("EXTENSION_RANGE_TOO_LONG",
+                    "Abonelik tek işlemde en fazla " + maximumExtensionDays + " gün uzatılabilir.");
         }
         List<LocalDate> newServiceDays = deliveryPlanningService.calculateServiceDays(
                 subscription.getStore().getId(), oldEndDate.plusDays(1), newEndDate);
@@ -70,6 +80,12 @@ public class SubscriptionRenewalService {
             throw new BusinessException("DELIVERY_TIME_NOT_AVAILABLE",
                     "Mevcut teslimat saati uzatma dönemindeki çalışma saatlerine uygun değil.");
         }
+        return newServiceDays;
+    }
+
+    private Subscription applyExtension(Long actorUserId, Subscription subscription, LocalDate newEndDate) {
+        LocalDate oldEndDate = subscription.getEndDate();
+        List<LocalDate> newServiceDays = validateExtension(subscription, newEndDate);
         capacityService.reserveOrThrow(subscription.getStore().getId(), newServiceDays, subscription.getPersonCount());
         Subscription currentSubscription = subscription;
         List<SubscriptionDelivery> newDeliveries = newServiceDays.stream()
@@ -95,10 +111,10 @@ public class SubscriptionRenewalService {
         subscription.setTotalAmount(subscription.getTotalAmount().add(extensionAmount));
         subscription = subscriptionRepository.save(subscription);
         audits.save(AuditLog.builder()
-                .actorId(customerUserId)
+                .actorId(actorUserId)
                 .action("SUBSCRIPTION_EXTENDED")
                 .entityType("SUBSCRIPTION")
-                .entityId(subscriptionId)
+                .entityId(subscription.getId())
                 .oldValue(oldEndDate.toString())
                 .newValue(newEndDate + ";serviceDays=" + newServiceDays.size())
                 .timestamp(Instant.now())
@@ -109,14 +125,14 @@ public class SubscriptionRenewalService {
                 .message("Aboneliğiniz " + newEndDate + " tarihine kadar " + newServiceDays.size()
                         + " yeni hizmet günüyle uzatıldı.")
                 .referenceType("SUBSCRIPTION")
-                .referenceId(subscriptionId)
+                .referenceId(subscription.getId())
                 .build());
         notifications.publish(Notification.builder()
                 .user(subscription.getStore().getSeller().getUser())
                 .title("Abonelik dönemi uzatıldı")
-                .message("Abonelik #" + subscriptionId + " " + newEndDate + " tarihine kadar uzatıldı.")
+                .message("Abonelik #" + subscription.getId() + " " + newEndDate + " tarihine kadar uzatıldı.")
                 .referenceType("SUBSCRIPTION")
-                .referenceId(subscriptionId)
+                .referenceId(subscription.getId())
                 .build());
         return subscription;
     }
@@ -147,7 +163,9 @@ public class SubscriptionRenewalService {
                         List.of(SubscriptionStatus.APPROVED, SubscriptionStatus.ACTIVE), today)) {
             BigDecimal previousPrice = subscription.getPricePerPerson();
             try {
-                int periodDays = Math.max(1, java.util.Optional.ofNullable(subscription.getRenewalPeriodDays()).orElse(28));
+                int defaultPeriodDays = platformSettingService.getInt(
+                        com.mealflex.platform.service.PlatformSettingService.SUBSCRIPTION_DEFAULT_RENEWAL_PERIOD_DAYS, 28);
+                int periodDays = Math.max(1, java.util.Optional.ofNullable(subscription.getRenewalPeriodDays()).orElse(defaultPeriodDays));
                 BigDecimal oldPrice = subscription.getPricePerPerson();
                 BigDecimal currentPrice = subscription.getMenu().getPricePerPerson();
                 subscription.setPricePerPerson(currentPrice);
@@ -176,7 +194,9 @@ public class SubscriptionRenewalService {
     @Scheduled(cron = "0 30 9 * * *", zone = "Europe/Istanbul")
     @Transactional
     public void notifyUpcomingPriceChanges() {
-        LocalDate renewalDate = SubscriptionDatePolicy.today().plusDays(7);
+        int noticeDays = platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.SUBSCRIPTION_RENEWAL_PRICE_NOTICE_DAYS, 7);
+        LocalDate renewalDate = SubscriptionDatePolicy.today().plusDays(noticeDays);
         for (Subscription subscription : subscriptionRepository.findByAutoRenewTrueAndStatusInAndEndDate(
                 List.of(SubscriptionStatus.APPROVED, SubscriptionStatus.ACTIVE), renewalDate)) {
             if (renewalDate.equals(subscription.getRenewalPriceNoticeForEndDate())) continue;
@@ -184,7 +204,7 @@ public class SubscriptionRenewalService {
             if (currentPrice.compareTo(subscription.getPricePerPerson()) != 0) {
                 notifications.publish(Notification.builder().user(subscription.getCustomer())
                         .title("Otomatik yenileme fiyatı değişecek")
-                        .message("Aboneliğiniz 7 gün sonra yenilenirken kişi başı günlük fiyat "
+                        .message("Aboneliğiniz " + noticeDays + " gün sonra yenilenirken kişi başı günlük fiyat "
                                 + subscription.getPricePerPerson() + " TL yerine " + currentPrice
                                 + " TL olacak. İsterseniz otomatik yenilemeyi abonelik detayından kapatabilirsiniz.")
                         .referenceType("SUBSCRIPTION").referenceId(subscription.getId()).build());

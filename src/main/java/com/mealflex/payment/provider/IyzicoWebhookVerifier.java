@@ -11,7 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 
-/** Verifies iyzico's current X-IYZ-SIGNATURE-V3 direct-payment webhook format. */
+/** Verifies iyzico X-IYZ-SIGNATURE-V3 for both direct and Checkout Form webhooks. */
 @Component
 public class IyzicoWebhookVerifier {
     private final String secretKey;
@@ -27,11 +27,21 @@ public class IyzicoWebhookVerifier {
         try {
             JsonNode body = objectMapper.readTree(payload);
             String eventType = body.path("iyziEventType").asText();
-            String paymentId = body.hasNonNull("paymentId") ? body.path("paymentId").asText() : body.path("iyziPaymentId").asText();
             String conversationId = body.path("paymentConversationId").asText();
             String status = body.path("status").asText();
-            if (eventType.isBlank() || paymentId.isBlank() || conversationId.isBlank() || status.isBlank()) return false;
-            String message = secretKey + eventType + paymentId + conversationId + status;
+            String token = body.path("token").asText();
+            String paymentId;
+            String message;
+            if (!token.isBlank()) {
+                paymentId = body.path("iyziPaymentId").asText();
+                if (eventType.isBlank() || paymentId.isBlank() || conversationId.isBlank() || status.isBlank()) return false;
+                message = secretKey + eventType + paymentId + token + conversationId + status;
+            } else {
+                paymentId = body.hasNonNull("paymentId")
+                        ? body.path("paymentId").asText() : body.path("iyziPaymentId").asText();
+                if (eventType.isBlank() || paymentId.isBlank() || conversationId.isBlank() || status.isBlank()) return false;
+                message = secretKey + eventType + paymentId + conversationId + status;
+            }
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(secretKey.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
             byte[] expected = mac.doFinal(message.getBytes(StandardCharsets.UTF_8));
@@ -49,5 +59,19 @@ public class IyzicoWebhookVerifier {
     public String eventType(String payload) {
         try { return objectMapper.readTree(payload).path("iyziEventType").asText(); }
         catch (Exception ignored) { return ""; }
+    }
+
+    public String token(String payload) {
+        try { return objectMapper.readTree(payload).path("token").asText(); }
+        catch (Exception ignored) { return ""; }
+    }
+
+    public String status(String payload) {
+        try { return objectMapper.readTree(payload).path("status").asText(); }
+        catch (Exception ignored) { return ""; }
+    }
+
+    public boolean isCheckoutForm(String payload) {
+        return "CHECKOUT_FORM_AUTH".equalsIgnoreCase(eventType(payload)) && !token(payload).isBlank();
     }
 }

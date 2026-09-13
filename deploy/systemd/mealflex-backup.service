@@ -1,0 +1,19 @@
+[Unit]
+Description=MealFlex staging database and uploads backup
+Requires=docker.service
+After=docker.service network-online.target
+OnFailure=mealflex-alert@%n.service
+
+[Service]
+Type=oneshot
+User=mealflex
+Group=docker
+WorkingDirectory=/opt/mealflex/MealFlex-BE/deploy
+ExecStart=/bin/sh /opt/mealflex/MealFlex-BE/deploy/backup.sh
+TimeoutStartSec=30min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target

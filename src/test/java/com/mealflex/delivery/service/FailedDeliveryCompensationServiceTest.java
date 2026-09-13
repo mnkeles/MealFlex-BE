@@ -50,6 +50,7 @@ class FailedDeliveryCompensationServiceTest {
     @Mock private StoreCapacityService capacityService;
     @Mock private NotificationEventService notifications;
     @Mock private AuditLogRepository audits;
+    @Mock private com.mealflex.platform.service.PlatformSettingService platformSettingService;
     @InjectMocks private FailedDeliveryCompensationService service;
 
     private Store store;
@@ -58,6 +59,9 @@ class FailedDeliveryCompensationServiceTest {
 
     @BeforeEach
     void setUp() {
+        org.mockito.Mockito.lenient().when(platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.FAILED_DELIVERY_COMPENSATION_SEARCH_DAYS, 90))
+                .thenReturn(90);
         User customer = User.builder().firstName("Ayşe").lastName("Yılmaz")
                 .email("customer@example.test").password("x").build();
         User sellerUser = User.builder().firstName("Satıcı").lastName("Kullanıcı")

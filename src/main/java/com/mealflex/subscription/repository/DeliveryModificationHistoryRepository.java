@@ -24,4 +24,12 @@ public interface DeliveryModificationHistoryRepository extends JpaRepository<Del
     List<DeliveryModificationHistory> findByStoreIdAndRequestStatus(
             @Param("storeId") Long storeId,
             @Param("status") DeliveryModificationRequestStatus status);
+
+    @Query("""
+            select count(history) from DeliveryModificationHistory history
+            where history.subscription.store.id = :storeId and history.requestStatus = :status
+            """)
+    long countPendingByStoreId(
+            @Param("storeId") Long storeId,
+            @Param("status") DeliveryModificationRequestStatus status);
 }

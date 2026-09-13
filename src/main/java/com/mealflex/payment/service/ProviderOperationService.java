@@ -21,15 +21,24 @@ public class ProviderOperationService {
     private final ProviderOperationRepository repository;
     private final PlatformTransactionManager transactionManager;
 
-    public ChargeExecution charge(Long paymentId, Long subscriptionId, String token, BigDecimal amount,
-                                  String currency, String key) {
+    public ChargeExecution charge(Long paymentId, Long subscriptionId, String token, String customerToken,
+                                  String buyerIp, BigDecimal amount, String currency, String key) {
         ProviderOperation operation = prepare("CHARGE", paymentId, subscriptionId, amount, currency, key);
         if ("PROVIDER_SUCCEEDED".equals(operation.getStatus())) return new ChargeExecution(operation.getId(),
                 new PaymentProvider.ChargeResult(true, operation.getProviderTransactionId(), operation.getProviderRequestId(),
                         operation.getProviderCode(), operation.getProviderMessage()));
-        PaymentProvider.ChargeResult result = provider.charge(token, amount, currency, key);
+        PaymentProvider.ChargeResult result = customerToken == null || customerToken.isBlank()
+                ? provider.charge(token, amount, currency, key)
+                : provider.charge(new PaymentProvider.ChargeCommand(
+                        token, customerToken, buyerIp, amount, currency, key, subscriptionId));
         complete(operation.getId(), result.successful(), result.providerPaymentId(), result.requestId(), result.code(), result.message());
         return new ChargeExecution(operation.getId(), result);
+    }
+
+    /** Backwards-compatible entry point used by provider-operation unit tests and MOCK-only callers. */
+    public ChargeExecution charge(Long paymentId, Long subscriptionId, String token, BigDecimal amount,
+                                  String currency, String key) {
+        return charge(paymentId, subscriptionId, token, null, null, amount, currency, key);
     }
 
     public RefundExecution refund(Long paymentId, Long subscriptionId, String providerPaymentId, BigDecimal amount,

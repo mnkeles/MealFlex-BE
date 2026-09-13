@@ -32,6 +32,32 @@ class IyzicoWebhookVerifierTest {
         assertThat(verifier.verify(payload.replace("SUCCESS", "FAILURE"), signature)).isFalse();
     }
 
+    @Test
+    void verifiesCheckoutFormV3SignatureIncludingToken() throws Exception {
+        IyzicoWebhookVerifier verifier = new IyzicoWebhookVerifier(secret, new ObjectMapper());
+        String checkoutPayload = "{\"iyziReferenceCode\":\"event-hpp-1\",\"iyziEventType\":\"CHECKOUT_FORM_AUTH\","
+                + "\"iyziPaymentId\":\"payment-43\",\"token\":\"checkout-token\","
+                + "\"paymentConversationId\":\"mf-checkout-9\",\"status\":\"SUCCESS\"}";
+        String signature = signature(secret + "CHECKOUT_FORM_AUTH" + "payment-43" + "checkout-token"
+                + "mf-checkout-9" + "SUCCESS");
+
+        assertThat(verifier.verify(checkoutPayload, signature)).isTrue();
+        assertThat(verifier.isCheckoutForm(checkoutPayload)).isTrue();
+        assertThat(verifier.token(checkoutPayload)).isEqualTo("checkout-token");
+        assertThat(verifier.status(checkoutPayload)).isEqualTo("SUCCESS");
+    }
+
+    @Test
+    void rejectsCheckoutFormSignatureThatOmitsToken() throws Exception {
+        IyzicoWebhookVerifier verifier = new IyzicoWebhookVerifier(secret, new ObjectMapper());
+        String checkoutPayload = "{\"iyziReferenceCode\":\"event-hpp-1\",\"iyziEventType\":\"CHECKOUT_FORM_AUTH\","
+                + "\"iyziPaymentId\":\"payment-43\",\"token\":\"checkout-token\","
+                + "\"paymentConversationId\":\"mf-checkout-9\",\"status\":\"SUCCESS\"}";
+
+        assertThat(verifier.verify(checkoutPayload,
+                signature(secret + "CHECKOUT_FORM_AUTH" + "payment-43" + "mf-checkout-9" + "SUCCESS"))).isFalse();
+    }
+
     private String signature(String value) throws Exception {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));

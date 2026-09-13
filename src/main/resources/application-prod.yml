@@ -1,4 +1,21 @@
+springdoc:
+  # API şeması ve Swagger arayüzü yalnız geliştirme/staging ortamlarında açık
+  # tutulur. Canlı ortamda yönetim ağı dışında dokümantasyon yayımlanmaz.
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+server:
+  # Caddy ve Nginx dışındaki doğrudan erişim Docker ağıyla kapalıdır.
+  # Bu ayar HTTPS şeması ile gerçek istemci IP'sini uygulamaya taşır.
+  forward-headers-strategy: framework
+
 spring:
+  flyway:
+    # Spatial migration canlıya ayrıca FLYWAY_LOCATIONS ile açılır; sıradan bir
+    # dağıtım CREATE EXTENSION yetkisi eksik diye beklenmedik biçimde durmamalıdır.
+    locations: ${FLYWAY_LOCATIONS:classpath:db/migration}
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
@@ -19,16 +36,16 @@ app:
   frontend:
     base-url: ${FRONTEND_BASE_URL}
   notifications:
-    external-enabled: ${NOTIFICATION_EXTERNAL_ENABLED}
+    external-enabled: ${NOTIFICATION_EXTERNAL_ENABLED:false}
     email:
-      endpoint: ${NOTIFICATION_EMAIL_ENDPOINT}
-      api-key: ${NOTIFICATION_EMAIL_API_KEY}
+      endpoint: ${NOTIFICATION_EMAIL_ENDPOINT:}
+      api-key: ${NOTIFICATION_EMAIL_API_KEY:}
     sms:
-      endpoint: ${NOTIFICATION_SMS_ENDPOINT}
-      api-key: ${NOTIFICATION_SMS_API_KEY}
+      endpoint: ${NOTIFICATION_SMS_ENDPOINT:}
+      api-key: ${NOTIFICATION_SMS_API_KEY:}
     push:
-      endpoint: ${NOTIFICATION_PUSH_ENDPOINT}
-      api-key: ${NOTIFICATION_PUSH_API_KEY}
+      endpoint: ${NOTIFICATION_PUSH_ENDPOINT:}
+      api-key: ${NOTIFICATION_PUSH_API_KEY:}
   jwt:
     # Varsayılan değer bilinçli olarak yoktur: eksik sır uygulamayı başlatmamalıdır.
     secret: ${JWT_SECRET}
@@ -36,7 +53,13 @@ app:
     allowed-origins: ${CORS_ALLOWED_ORIGINS}
   payment:
     provider: ${PAYMENT_PROVIDER}
-    webhook-secret: ${PAYMENT_WEBHOOK_SECRET}
+    webhook-secret: ${PAYMENT_WEBHOOK_SECRET:}
+    iyzico:
+      api-key: ${IYZICO_API_KEY:}
+      secret-key: ${IYZICO_SECRET_KEY:}
+      base-url: ${IYZICO_BASE_URL:https://api.iyzipay.com}
+      callback-url: ${IYZICO_CALLBACK_URL:}
+      card-management-callback-url: ${IYZICO_CARD_MANAGEMENT_CALLBACK_URL:}
   payout:
     provider: ${PAYOUT_PROVIDER:MOCK}
   verification:

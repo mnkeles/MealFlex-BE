@@ -13,6 +13,7 @@ import com.mealflex.store.repository.StoreRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.scheduling.annotation.Scheduled;
 
 import java.time.Instant;
 import java.util.List;
@@ -49,6 +50,10 @@ public class AdminPlatformConfigurationService {
                 .commissionRate(request.commissionRate()).commissionVatRate(request.commissionVatRate())
                 .effectiveFrom(request.effectiveFrom())
                 .effectiveTo(nextRuleDate == null ? null : nextRuleDate.minusDays(1)).active(true).build());
+        if (store == null && !request.effectiveFrom().isAfter(
+                com.mealflex.subscription.service.SubscriptionDatePolicy.today())) {
+            settings.updateCommissionRate(request.commissionRate());
+        }
         audits.save(AuditLog.builder().actorId(adminId).action("COMMISSION_RULE_CREATED")
                 .entityType("COMMISSION_RULE").entityId(rule.getId())
                 .newValue("storeId=" + request.storeId() + ", rate=" + request.commissionRate()
@@ -67,6 +72,14 @@ public class AdminPlatformConfigurationService {
                 .entityType("PLATFORM_SETTING").entityId(saved.getId()).newValue(key + "=" + value)
                 .timestamp(Instant.now()).build());
         return settings.list();
+    }
+
+    @Scheduled(cron = "0 5 0 * * *", zone = "Europe/Istanbul")
+    @Transactional
+    public void activateScheduledGlobalCommissionRate() {
+        commissionRules.findApplicableGlobal(com.mealflex.subscription.service.SubscriptionDatePolicy.today())
+                .stream().findFirst()
+                .ifPresent(rule -> settings.updateCommissionRate(rule.getCommissionRate()));
     }
 
     private CommissionRuleResponse response(CommissionRule rule) {

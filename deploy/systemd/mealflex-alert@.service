@@ -1,0 +1,11 @@
+[Unit]
+Description=Send MealFlex operation alert for %i
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=mealflex
+Group=mealflex
+EnvironmentFile=-/etc/mealflex/ops-alert.env
+ExecStart=/bin/sh /opt/mealflex/MealFlex-BE/deploy/send-ops-alert.sh %i
+TimeoutStartSec=30s

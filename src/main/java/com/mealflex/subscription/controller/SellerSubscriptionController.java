@@ -6,12 +6,14 @@ import com.mealflex.subscription.dto.SubscriptionEventResponse;
 import com.mealflex.subscription.dto.SellerSubscriptionDetailResponse;
 import com.mealflex.subscription.dto.DeliveryModificationRequestResponse;
 import com.mealflex.subscription.dto.SellerCancelSubscriptionRequest;
+import com.mealflex.subscription.dto.SubscriptionExtensionRequestResponse;
+import com.mealflex.subscription.dto.SellerRejectionReason;
+import com.mealflex.subscription.dto.SellerRejectionReasonResponse;
 import jakarta.validation.Valid;
 import com.mealflex.subscription.entity.SubscriptionStatus;
 import com.mealflex.subscription.service.SubscriptionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.data.domain.Page;
@@ -24,6 +26,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDate;
 import java.util.Map;
 import java.util.List;
+import java.util.Arrays;
 
 @RestController
 @RequestMapping("/v1/seller/subscriptions")
@@ -34,6 +37,15 @@ public class SellerSubscriptionController {
 
     private final SubscriptionService subscriptionService;
     private final com.mealflex.subscription.service.DeliveryModificationService deliveryModificationService;
+    private final com.mealflex.subscription.service.SubscriptionExtensionRequestService extensionRequestService;
+
+    @GetMapping("/rejection-reasons")
+    @Operation(summary = "Müşteriye gösterilebilecek sabit ret nedenlerini listele")
+    public ResponseEntity<List<SellerRejectionReasonResponse>> rejectionReasons() {
+        return ResponseEntity.ok(Arrays.stream(SellerRejectionReason.values())
+                .map(reason -> new SellerRejectionReasonResponse(reason.name(), reason.customerMessage()))
+                .toList());
+    }
 
     @GetMapping
     @Operation(summary = "Mağaza aboneliklerini listele")
@@ -86,9 +98,9 @@ public class SellerSubscriptionController {
     public ResponseEntity<SubscriptionResponse> reject(
             @AuthenticationPrincipal UserPrincipal principal,
             @PathVariable Long id,
-            @RequestParam @NotBlank String reason) {
+            @RequestParam SellerRejectionReason reasonCode) {
         return ResponseEntity.ok(
-                subscriptionService.rejectSubscription(principal.getId(), id, reason));
+                subscriptionService.rejectSubscription(principal.getId(), id, reasonCode.customerMessage()));
     }
 
     @PostMapping("/{id}/cancel")
@@ -98,7 +110,7 @@ public class SellerSubscriptionController {
             @PathVariable Long id,
             @Valid @RequestBody SellerCancelSubscriptionRequest request) {
         return ResponseEntity.ok(subscriptionService.cancelSubscriptionBySeller(
-                principal.getId(), id, request.reason()));
+                principal.getId(), id, request.reasonCode().customerMessage()));
     }
 
     @GetMapping("/stores/{storeId}/revenue")
@@ -134,6 +146,29 @@ public class SellerSubscriptionController {
         return ResponseEntity.ok(deliveryModificationService.getPendingRequests(principal.getId(), storeId));
     }
 
+    @GetMapping("/stores/{storeId}/extension-requests")
+    @Operation(summary = "Mağazanın onay bekleyen dönem uzatma talepleri")
+    public ResponseEntity<List<SubscriptionExtensionRequestResponse>> pendingExtensionRequests(
+            @AuthenticationPrincipal UserPrincipal principal, @PathVariable Long storeId) {
+        return ResponseEntity.ok(extensionRequestService.getPendingRequests(principal.getId(), storeId));
+    }
+
+    @PostMapping("/extension-requests/{requestId}/approve")
+    @Operation(summary = "Dönem uzatma talebini onayla ve aboneliği uzat")
+    public ResponseEntity<SubscriptionExtensionRequestResponse> approveExtensionRequest(
+            @AuthenticationPrincipal UserPrincipal principal, @PathVariable Long requestId) {
+        return ResponseEntity.ok(extensionRequestService.approve(principal.getId(), requestId));
+    }
+
+    @PostMapping("/extension-requests/{requestId}/reject")
+    @Operation(summary = "Dönem uzatma talebini reddet")
+    public ResponseEntity<SubscriptionExtensionRequestResponse> rejectExtensionRequest(
+            @AuthenticationPrincipal UserPrincipal principal, @PathVariable Long requestId,
+            @RequestParam SellerRejectionReason reasonCode) {
+        return ResponseEntity.ok(extensionRequestService.reject(
+                principal.getId(), requestId, reasonCode.customerMessage()));
+    }
+
     @PostMapping("/delivery-change-requests/{requestId}/approve")
     @Operation(summary = "Teslimat değişikliği talebini onayla")
     public ResponseEntity<DeliveryModificationRequestResponse> approveDeliveryChangeRequest(
@@ -145,7 +180,8 @@ public class SellerSubscriptionController {
     @Operation(summary = "Teslimat değişikliği talebini reddet")
     public ResponseEntity<DeliveryModificationRequestResponse> rejectDeliveryChangeRequest(
             @AuthenticationPrincipal UserPrincipal principal, @PathVariable Long requestId,
-            @RequestParam @NotBlank String reason) {
-        return ResponseEntity.ok(deliveryModificationService.rejectRequest(principal.getId(), requestId, reason));
+            @RequestParam SellerRejectionReason reasonCode) {
+        return ResponseEntity.ok(deliveryModificationService.rejectRequest(
+                principal.getId(), requestId, reasonCode.customerMessage()));
     }
 }

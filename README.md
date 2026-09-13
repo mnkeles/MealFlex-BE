@@ -30,6 +30,49 @@ http://localhost:9090/api/swagger-ui.html adresinde çalışır.
 Test paketi ve JaCoCo kalite kapısı çalışır; gerçek ödeme/SMS sağlayıcısına
 istek gönderildiği veya üretim veritabanının doğrulandığı anlamına gelmez.
 
+## Staging dağıtımı ve smoke testi
+
+Tek Linux VPS için Caddy otomatik HTTPS, PostgreSQL, backend ve frontend Compose
+paketi `deploy/` altındadır. Kurulum, yedekleme, geri yükleme, izleme ve yayın kabul
+adımları için `deploy/README.md` dosyasını izleyin.
+
+Yayın sonrası yalnızca `GET` istekleri yapan tekrar kullanılabilir smoke testi:
+
+    ./scripts/Invoke-ApiSmokeTest.ps1 -BaseUrl https://staging.example.com/api -SwaggerExpectedStatus 404 -ApiDocsExpectedStatus 404
+
+Betik health durumunu, Swagger arayüzünü, OpenAPI dokümanını ve korumalı bir
+endpointin anonim isteği reddettiğini doğrular. Yetkili bir salt-okunur çağrıyı
+da doğrulamak için token'ı komut geçmişine yazmadan ortam değişkeniyle iletin:
+
+    ./scripts/Invoke-ApiSmokeTest.ps1 -BaseUrl https://staging.example.com/api -AccessToken $env:MEALFLEX_SMOKE_TOKEN -SwaggerExpectedStatus 404 -ApiDocsExpectedStatus 404
+
+Staging ortamı HTTPS kullanmıyorsa `-AllowInsecureHttp` yalnızca onaylı iç ağ
+ortamları için açıkça verilmelidir. Betik istek/yanıt gövdelerini ve token'ı
+çıktıya yazmaz. Canlı profilde Swagger kapalıysa beklenen yanıtı açıkça verin:
+
+    ./scripts/Invoke-ApiSmokeTest.ps1 -BaseUrl https://api.example.com/api -SwaggerExpectedStatus 404 -ApiDocsExpectedStatus 404
+
+## Production ortam ön kontrolü
+
+Sunucuda veya secret store enjeksiyonundan sonra, sırları yazdırmadan zorunlu
+ayarları denetlemek için önce `.env.production.example` şablonunu doldurun ve
+çalışma ortamına aktarın. Ardından çalıştırın:
+
+    ./scripts/Test-ProductionEnvironment.ps1
+
+Betik PostgreSQL bağlantı türünü, HTTPS originlerini, minimum secret uzunluğunu,
+iyzico anahtar/callback ayarlarını ve PostGIS moduyla Flyway konumunun uyumunu
+denetler. Yerel veya staging provasında MOCK adaptera açıkça izin vermek için:
+
+    ./scripts/Test-ProductionEnvironment.ps1 -AllowMockPayment
+
+Canlı ödeme için `PAYMENT_PROVIDER=IYZICO` kullanılır. İlk haftalık ödeme iyzico'nun
+barındırdığı Checkout Form üzerinde alınır; kart numarası ve CVV MealFlex'e gelmez.
+Sonraki değişken tutarlı haftalık tahsilatlar iyzico'nun döndürdüğü kart tokenlarıyla
+yapılır. Kayıtlı kart ekleme/yönetme iyzico Card Management Page'e yönlenir; bunun
+için ayrı `IYZICO_CARD_MANAGEMENT_CALLBACK_URL` tanımlanır. Sandbox kabul adımları
+`../docs/IYZICO_CANLIYA_ALMA.md` dosyasındadır.
+
 Teslimat saati ayarları V42 Flyway geçişiyle `store_delivery_slots` tablosunda
 tutulur. Satıcı GET/PUT `/api/v1/seller/stores/{storeId}/delivery-slots`
 üzerinden kendi mağazasının 15 dakikalık saatlerini yönetir. Müşteri
@@ -40,6 +83,20 @@ teslimat kayıtlarının saatlerini geriye dönük değiştirmez.
 
 Frontend ayrı MealFlex-FE reposunda tutulur. İki uygulama HTTP API sözleşmesi
 üzerinden haberleşir.
+
+## PostGIS mesafe motoru
+
+Varsayılan `LOCATION_DISTANCE_ENGINE=HAVERSINE` mevcut Java mesafe hesabını
+korur. PostGIS kurulu staging/üretim ortamında spatial şemayı etkinleştirmek için:
+
+    FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/spatial-migration
+    LOCATION_DISTANCE_ENGINE=SHADOW
+
+`SHADOW` modu kullanıcıya Haversine sonucunu verirken PostGIS sonucunu metrik ve
+loglarla karşılaştırır. Doğrulama tamamlandıktan sonra
+`LOCATION_DISTANCE_ENGINE=POSTGIS` kullanılabilir. `POSTGIS` modu spatial şema
+eksikse uygulamayı başlangıçta durdurur. Ayrıntılı dağıtım ve geri dönüş adımları
+`../docs/POSTGIS_ENTEGRASYON_PLANI.md` dosyasındadır.
 
 ## Finans regresyonları ve PostgreSQL
 

@@ -56,6 +56,7 @@ class AdminControllerTest {
     @Mock SellerDocumentService sellerDocumentService; @Mock SubscriptionDeliveryRepository deliveryRepository; @Mock PaymentRepository paymentRepository;
     @Mock AccountSecurityService accountSecurityService;
     @Mock RiskCaseRepository riskCaseRepository;
+    @Mock com.mealflex.platform.service.PlatformSettingService platformSettingService;
     AdminOperationsController operationsController;
     AdminUserController userController;
     AdminStoreController storeController;
@@ -64,7 +65,9 @@ class AdminControllerTest {
     void setUp() {
         AdminActionSupport actions = new AdminActionSupport(auditLogRepository, accountSecurityService);
         operationsController = new AdminOperationsController(userRepository, subscriptionRepository, complaintRepository,
-                deliveryRepository, paymentRepository, auditLogRepository, riskCaseRepository);
+                deliveryRepository, paymentRepository, auditLogRepository, riskCaseRepository, platformSettingService);
+        org.mockito.Mockito.lenient().when(platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.COMPLAINT_RESPONSE_SLA_HOURS, 24)).thenReturn(24);
         userController = new AdminUserController(userRepository, addressRepository, subscriptionRepository,
                 complaintRepository, customerProfileRepository, sellerProfileRepository, auditLogRepository, actions);
         storeController = new AdminStoreController(storeRepository, serviceAreaRepository, subscriptionRepository,

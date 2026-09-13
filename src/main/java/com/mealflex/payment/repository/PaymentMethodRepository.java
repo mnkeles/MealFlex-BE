@@ -11,5 +11,9 @@ public interface PaymentMethodRepository extends JpaRepository<PaymentMethod, Lo
     List<PaymentMethod> findByCustomerIdAndActiveTrueOrderByDefaultMethodDescCreatedAtDesc(Long customerId);
     Optional<PaymentMethod> findByIdAndCustomerIdAndActiveTrue(Long id, Long customerId);
     Optional<PaymentMethod> findFirstByCustomerIdAndActiveTrueOrderByDefaultMethodDescCreatedAtDesc(Long customerId);
+    Optional<PaymentMethod> findFirstByCustomerIdAndProviderAndActiveTrueOrderByDefaultMethodDescCreatedAtDesc(
+            Long customerId, String provider);
+    Optional<PaymentMethod> findByCustomerIdAndProviderAndProviderToken(Long customerId, String provider, String providerToken);
+    List<PaymentMethod> findByCustomerIdAndProviderAndActiveTrue(Long customerId, String provider);
     boolean existsByCustomerIdAndActiveTrue(Long customerId);
 }

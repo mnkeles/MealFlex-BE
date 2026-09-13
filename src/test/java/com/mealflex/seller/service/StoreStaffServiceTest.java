@@ -30,10 +30,13 @@ class StoreStaffServiceTest {
     @Mock SellerStoreAccessService storeAccess;
     @Mock UserRepository users;
     @Mock AuditLogRepository auditLogs;
+    @Mock com.mealflex.platform.service.PlatformSettingService platformSettingService;
     @InjectMocks StoreStaffService service;
 
     @Test
     void invitationReturnsRawTokenOnceButStoresOnlyItsHash() {
+        when(platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.SELLER_STAFF_INVITATION_EXPIRY_DAYS, 7)).thenReturn(7);
         Store store = store(5L);
         User owner = user(9L, "owner@example.com");
         when(storeAccess.requireOwnedStore(9L, 5L)).thenReturn(store);

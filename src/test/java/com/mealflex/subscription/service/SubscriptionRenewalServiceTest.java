@@ -30,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class SubscriptionRenewalServiceTest {
@@ -40,7 +41,18 @@ class SubscriptionRenewalServiceTest {
     @Mock private StoreCapacityService capacityService;
     @Mock private NotificationEventService notifications;
     @Mock private AuditLogRepository audits;
+    @Mock private com.mealflex.platform.service.PlatformSettingService platformSettingService;
     @InjectMocks private SubscriptionRenewalService service;
+
+    @org.junit.jupiter.api.BeforeEach
+    void platformSettings() {
+        lenient().when(platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.SUBSCRIPTION_MAX_EXTENSION_DAYS, 730)).thenReturn(730);
+        lenient().when(platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.SUBSCRIPTION_DEFAULT_RENEWAL_PERIOD_DAYS, 28)).thenReturn(28);
+        lenient().when(platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.SUBSCRIPTION_RENEWAL_PRICE_NOTICE_DAYS, 7)).thenReturn(7);
+    }
 
     @Test
     void customerCanExtendActiveSubscriptionWithSameCommercialTerms() {

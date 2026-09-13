@@ -11,6 +11,7 @@ import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.payment.dto.*;
 import com.mealflex.payment.entity.*;
 import com.mealflex.payment.provider.PaymentProvider;
+import com.mealflex.payment.provider.StoredCardGateway;
 import com.mealflex.payment.repository.*;
 import com.mealflex.store.service.SellerStoreAccessService;
 import com.mealflex.subscription.entity.Subscription;
@@ -19,6 +20,7 @@ import com.mealflex.user.entity.User;
 import com.mealflex.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,7 +34,6 @@ import java.util.*;
 @Service @RequiredArgsConstructor
 public class PaymentService {
     private static final BigDecimal ZERO = new BigDecimal("0.00");
-    private static final int MAX_ATTEMPTS = 3;
     private final PaymentProvider provider;
     private final PaymentMethodRepository methodRepository;
     private final PaymentRepository paymentRepository;
@@ -54,9 +55,15 @@ public class PaymentService {
     private final PayoutRefundAdjustmentService payoutRefundAdjustmentService;
     private final ProviderOperationService providerOperationService;
     private final com.mealflex.subscription.repository.DeliveryModificationHistoryRepository modificationRepository;
+    private final com.mealflex.platform.service.PlatformSettingService platformSettingService;
+    private final ObjectProvider<StoredCardGateway> storedCardGatewayProvider;
 
     @Transactional
     public PaymentMethodResponse addMethod(Long userId, CreatePaymentMethodRequest request) {
+        if ("IYZICO".equals(provider.name())) {
+            throw new BusinessException("CARD_ENTRY_NOT_ALLOWED",
+                    "Kartlar yalnız iyzico güvenli ödeme sayfasından eklenebilir.");
+        }
         User user = userRepository.findById(userId).orElseThrow(() -> new ResourceNotFoundException("Kullanıcı", userId));
         if (request.makeDefault()) clearDefaults(userId);
         boolean makeDefault = request.makeDefault() || !methodRepository.existsByCustomerIdAndActiveTrue(userId);
@@ -78,11 +85,28 @@ public class PaymentService {
         PaymentMethod method = ownedMethod(userId, methodId);
         if (subscriptionRepository.existsByPaymentMethodIdAndStatusIn(methodId, List.of(
                 com.mealflex.subscription.entity.SubscriptionStatus.PENDING_APPROVAL,
+                com.mealflex.subscription.entity.SubscriptionStatus.PAYMENT_PENDING,
                 com.mealflex.subscription.entity.SubscriptionStatus.APPROVED,
                 com.mealflex.subscription.entity.SubscriptionStatus.ACTIVE,
                 com.mealflex.subscription.entity.SubscriptionStatus.PAYMENT_SUSPENDED))) {
             throw new BusinessException("PAYMENT_METHOD_IN_USE",
                     "Bu kart aktif veya bekleyen bir abonelikte kullanılıyor. Önce aboneliğin ödeme yöntemini değiştirin.");
+        }
+        if ("IYZICO".equals(method.getProvider())) {
+            StoredCardGateway gateway = storedCardGatewayProvider == null
+                    ? null : storedCardGatewayProvider.getIfAvailable();
+            if (gateway == null || method.getProviderCustomerToken() == null
+                    || method.getProviderCustomerToken().isBlank()) {
+                throw new BusinessException("IYZICO_CARD_PROVIDER_UNAVAILABLE",
+                        "Kart iyzico tarafında kaldırılamadı. Lütfen tekrar deneyin.");
+            }
+            String conversationId = "mf-card-delete-" + userId + "-" + methodId + "-" + UUID.randomUUID();
+            StoredCardGateway.DeleteResult result = gateway.delete(method.getProviderCustomerToken(),
+                    method.getProviderToken(), conversationId);
+            if (!result.successful() || !conversationId.equals(result.conversationId())) {
+                throw new BusinessException("IYZICO_CARD_DELETE_FAILED",
+                        "Kart iyzico tarafında kaldırılamadı. Lütfen tekrar deneyin.");
+            }
         }
         boolean wasDefault = method.isDefaultMethod();
         method.setActive(false); method.setDefaultMethod(false); methodRepository.save(method);
@@ -103,6 +127,7 @@ public class PaymentService {
             throw new BusinessException("UNAUTHORIZED_ACCESS", "Bu abonelik size ait değil.", HttpStatus.FORBIDDEN);
         }
         if (!List.of(com.mealflex.subscription.entity.SubscriptionStatus.PENDING_APPROVAL,
+                com.mealflex.subscription.entity.SubscriptionStatus.PAYMENT_PENDING,
                 com.mealflex.subscription.entity.SubscriptionStatus.APPROVED,
                 com.mealflex.subscription.entity.SubscriptionStatus.ACTIVE,
                 com.mealflex.subscription.entity.SubscriptionStatus.PAYMENT_SUSPENDED).contains(subscription.getStatus())) {
@@ -131,10 +156,9 @@ public class PaymentService {
         Payment payment = paymentRepository.findByIdempotencyKey(key).orElseGet(() -> createPayment(subscription, key));
         if (payment.getStatus() == PaymentStatus.SUCCEEDED || payment.getStatus() == PaymentStatus.PARTIALLY_REFUNDED || payment.getStatus() == PaymentStatus.REFUNDED) return payment;
         long attempts = attemptRepository.countByPaymentId(payment.getId());
-        if (attempts >= MAX_ATTEMPTS) return payment;
+        if (attempts >= maxAttempts()) return payment;
         payment.setStatus(PaymentStatus.PROCESSING); paymentRepository.save(payment);
-        ProviderOperationService.ChargeExecution execution = providerOperationService.charge(payment.getId(), subscription.getId(),
-                payment.getPaymentMethod().getProviderToken(), payment.getGrossAmount(), payment.getCurrency(), key);
+        ProviderOperationService.ChargeExecution execution = charge(payment, subscription, payment.getGrossAmount(), key);
         PaymentProvider.ChargeResult result = execution.result();
         PaymentAttempt attempt = PaymentAttempt.builder().payment(payment).attemptNumber((int) attempts + 1)
                 .status(result.successful() ? PaymentStatus.SUCCEEDED : PaymentStatus.FAILED)
@@ -160,6 +184,79 @@ public class PaymentService {
         return saved;
     }
 
+    @Transactional(readOnly = true)
+    public BigDecimal amountForWeek(Subscription subscription, LocalDate weekStart) {
+        var deliveries = deliveryRepository.findBySubscriptionId(subscription.getId());
+        return money(deliveries.stream()
+                .filter(delivery -> !delivery.getDeliveryDate().isBefore(weekStart)
+                        && !delivery.getDeliveryDate().isAfter(weekStart.plusDays(6)))
+                .filter(delivery -> delivery.getStatus() != DeliveryStatus.CANCELLED
+                        && delivery.getStatus() != DeliveryStatus.SKIPPED)
+                .map(delivery -> baseDue(subscription, deliveries, delivery))
+                .reduce(ZERO, BigDecimal::add));
+    }
+
+    @Transactional
+    public PaymentMethod upsertIyzicoMethod(User customer, String cardUserKey, String cardToken,
+                                            String registrationIp, String brand, String lastFour,
+                                            Integer expiryMonth, Integer expiryYear) {
+        if (cardUserKey == null || cardUserKey.isBlank() || cardToken == null || cardToken.isBlank()
+                || lastFour == null || !lastFour.matches("\\d{4}")
+                || expiryMonth == null || expiryMonth < 1 || expiryMonth > 12
+                || expiryYear == null || expiryYear < Year.now().getValue()) {
+            throw new BusinessException("IYZICO_CARD_RESULT_INVALID", "iyzico kart doğrulama sonucu eksik veya geçersiz.");
+        }
+        PaymentMethod method = methodRepository
+                .findByCustomerIdAndProviderAndProviderToken(customer.getId(), "IYZICO", cardToken)
+                .orElseGet(() -> PaymentMethod.builder().customer(customer).provider("IYZICO")
+                        .providerToken(cardToken).active(true).build());
+        boolean makeDefault = !methodRepository.existsByCustomerIdAndActiveTrue(customer.getId());
+        if (makeDefault) clearDefaults(customer.getId());
+        method.setProviderCustomerToken(cardUserKey);
+        method.setRegistrationIp(registrationIp);
+        method.setBrand(brand == null || brand.isBlank() ? "Kart" : brand);
+        method.setLastFour(lastFour);
+        method.setExpiryMonth(expiryMonth);
+        method.setExpiryYear(expiryYear);
+        method.setDefaultMethod(method.isDefaultMethod() || makeDefault);
+        method.setActive(true);
+        return methodRepository.save(method);
+    }
+
+    @Transactional
+    public Payment recordHostedCheckoutSuccess(Subscription subscription, PaymentMethod method,
+                                               LocalDate weekStart, BigDecimal amount,
+                                               String providerTransactionId, String providerRequestId) {
+        String key = "subscription-week-charge-" + subscription.getId() + "-" + weekStart;
+        Payment existing = paymentRepository.findByIdempotencyKey(key).orElse(null);
+        if (existing != null) {
+            if (existing.getStatus() != PaymentStatus.SUCCEEDED
+                    || existing.getGrossAmount().compareTo(money(amount)) != 0
+                    || !Objects.equals(existing.getProviderPaymentId(), providerTransactionId)) {
+                throw new BusinessException("PAYMENT_RECONCILIATION_REQUIRED",
+                        "iyzico ödemesi mevcut yerel kayıtla uyuşmuyor; manuel mutabakat gerekir.");
+            }
+            return existing;
+        }
+        subscription.setPaymentMethod(method);
+        subscriptionRepository.save(subscription);
+        Payment payment = createPayment(subscription, key, amount, false, null, null, null);
+        payment.setStatus(PaymentStatus.SUCCEEDED);
+        payment.setProviderPaymentId(providerTransactionId);
+        payment.setPaidAt(Instant.now());
+        payment = paymentRepository.save(payment);
+        attemptRepository.save(PaymentAttempt.builder().payment(payment).attemptNumber(1)
+                .status(PaymentStatus.SUCCEEDED).providerRequestId(providerRequestId)
+                .providerResponseCode("SUCCESS").attemptedAt(Instant.now()).build());
+        invoiceRepository.save(Invoice.builder().payment(payment).subscription(subscription)
+                .invoiceNumber("MF-" + Year.now().getValue() + "-" + String.format("%08d", payment.getId()))
+                .invoiceType("RECEIPT").currency(payment.getCurrency()).grossAmount(payment.getGrossAmount())
+                .issuedAt(Instant.now()).build());
+        notify(subscription.getCustomer(), "İlk haftalık ödemeniz alındı",
+                paymentMessage("Haftalık yemek ücreti", payment), subscription.getId());
+        return payment;
+    }
+
     /** Takvim haftasının ilk teslim günü saat 09:00'da çalışacak tahsilat. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Payment chargeForCalendarWeek(Subscription subscription, LocalDate weekStart) {
@@ -179,15 +276,14 @@ public class PaymentService {
         if (payment.getStatus() == PaymentStatus.SUCCEEDED || payment.getStatus() == PaymentStatus.PARTIALLY_REFUNDED || payment.getStatus() == PaymentStatus.REFUNDED) return payment;
         refreshUnpaidWeeklyPayment(payment);
         long attempts = attemptRepository.countByPaymentId(payment.getId());
-        if (attempts >= MAX_ATTEMPTS) return payment;
+        if (attempts >= maxAttempts()) return payment;
         if (payment.getBalanceAmount().signum() == 0 && payment.getCardAmount().compareTo(payment.getGrossAmount()) == 0) {
             fundFromMealBalance(payment, null, MealBalanceTransactionType.WEEKLY_CHARGE_DEBIT,
                     "Haftalık yemek ücreti için öğün bakiyesi kullanıldı", attempts);
         }
         if (payment.getCardAmount().signum() == 0) return completeBalanceOnlyPayment(payment, subscription, "Haftalık ödemeniz alındı");
         payment.setStatus(PaymentStatus.PROCESSING); paymentRepository.save(payment);
-        ProviderOperationService.ChargeExecution execution = providerOperationService.charge(payment.getId(), subscription.getId(),
-                payment.getPaymentMethod().getProviderToken(), payment.getCardAmount(), payment.getCurrency(), key);
+        ProviderOperationService.ChargeExecution execution = charge(payment, subscription, payment.getCardAmount(), key);
         PaymentProvider.ChargeResult result = execution.result();
         attemptRepository.save(PaymentAttempt.builder().payment(payment).attemptNumber((int) attempts + 1)
                 .status(result.successful() ? PaymentStatus.SUCCEEDED : PaymentStatus.FAILED).providerRequestId(result.requestId())
@@ -218,15 +314,15 @@ public class PaymentService {
                 || payment.getStatus() == PaymentStatus.REFUNDED) return toPayment(payment);
         refreshUnpaidWeeklyPayment(payment);
         long attempts = attemptRepository.countByPaymentId(payment.getId());
-        if (attempts >= MAX_ATTEMPTS) throw new BusinessException("PAYMENT_RETRY_LIMIT", "Ödeme deneme sınırına ulaşıldı.");
+        if (attempts >= maxAttempts()) throw new BusinessException("PAYMENT_RETRY_LIMIT", "Ödeme deneme sınırına ulaşıldı.");
         if (payment.getBalanceAmount().signum() == 0 && payment.getCardAmount().compareTo(payment.getGrossAmount()) == 0) {
             MealBalanceTransactionType type = payment.getIdempotencyKey().startsWith("subscription-week-charge-")
                     ? MealBalanceTransactionType.WEEKLY_CHARGE_DEBIT : MealBalanceTransactionType.DELIVERY_INCREASE_DEBIT;
             fundFromMealBalance(payment, null, type, "Öğün bakiyesi kullanıldı", attempts);
         }
         if (payment.getCardAmount().signum() == 0) return toPayment(completeBalanceOnlyPayment(payment, payment.getSubscription(), "Ödemeniz alındı"));
-        ProviderOperationService.ChargeExecution execution = providerOperationService.charge(payment.getId(), payment.getSubscription().getId(),
-                payment.getPaymentMethod().getProviderToken(), payment.getCardAmount(), payment.getCurrency(), payment.getIdempotencyKey());
+        ProviderOperationService.ChargeExecution execution = charge(payment, payment.getSubscription(), payment.getCardAmount(),
+                payment.getIdempotencyKey());
         PaymentProvider.ChargeResult result = execution.result();
         attemptRepository.save(PaymentAttempt.builder().payment(payment).attemptNumber((int) attempts + 1)
                 .status(result.successful() ? PaymentStatus.SUCCEEDED : PaymentStatus.FAILED).providerRequestId(result.requestId())
@@ -256,7 +352,7 @@ public class PaymentService {
         if (payment == null || !isWeekly(payment) || payment.getStatus() != PaymentStatus.FAILED
                 || payment.getNextRetryAt() == null || payment.getNextRetryAt().isAfter(Instant.now())) return;
         long attempts = attemptRepository.countByPaymentId(payment.getId());
-        if (attempts >= MAX_ATTEMPTS) {
+        if (attempts >= maxAttempts()) {
             suspendForFailedCollection(payment);
             paymentRepository.save(payment);
             return;
@@ -273,15 +369,14 @@ public class PaymentService {
         if (payment.getStatus() == PaymentStatus.SUCCEEDED || payment.getStatus() == PaymentStatus.PARTIALLY_REFUNDED
                 || payment.getStatus() == PaymentStatus.REFUNDED) return payment;
         long attempts = attemptRepository.countByPaymentId(payment.getId());
-        if (attempts >= MAX_ATTEMPTS) return payment;
+        if (attempts >= maxAttempts()) return payment;
         if (payment.getBalanceAmount().signum() == 0 && payment.getCardAmount().compareTo(payment.getGrossAmount()) == 0) {
             fundFromMealBalance(payment, deliveryId, MealBalanceTransactionType.DELIVERY_INCREASE_DEBIT,
                     "Ek porsiyon için öğün bakiyesi kullanıldı", attempts);
         }
         if (payment.getCardAmount().signum() == 0) return completeBalanceOnlyPayment(payment, subscription, "Değişiklik ödemesi alındı");
         payment.setStatus(PaymentStatus.PROCESSING); paymentRepository.save(payment);
-        ProviderOperationService.ChargeExecution execution = providerOperationService.charge(payment.getId(), subscription.getId(),
-                payment.getPaymentMethod().getProviderToken(), payment.getCardAmount(), payment.getCurrency(), key);
+        ProviderOperationService.ChargeExecution execution = charge(payment, subscription, payment.getCardAmount(), key);
         PaymentProvider.ChargeResult result = execution.result();
         attemptRepository.save(PaymentAttempt.builder().payment(payment).attemptNumber((int) attempts + 1)
                 .status(result.successful() ? PaymentStatus.SUCCEEDED : PaymentStatus.FAILED).providerRequestId(result.requestId())
@@ -412,7 +507,7 @@ public class PaymentService {
         Refund refund = refundRepository.findByIdForUpdate(refundId)
                 .orElseThrow(() -> new ResourceNotFoundException("İade", refundId));
         if (refund.getStatus() != RefundStatus.FAILED || refund.getNextRetryAt() == null
-                || refund.getNextRetryAt().isAfter(Instant.now()) || refund.getAttemptCount() >= MAX_ATTEMPTS) {
+                || refund.getNextRetryAt().isAfter(Instant.now()) || refund.getAttemptCount() >= maxAttempts()) {
             return refund;
         }
         boolean adminRefund = refund.getIdempotencyKey().startsWith("admin-refund-");
@@ -518,7 +613,7 @@ public class PaymentService {
         } else {
             refund.setStatus(RefundStatus.FAILED);
             refund.setFailureMessage(safe(result.message()));
-            refund.setNextRetryAt(refund.getAttemptCount() >= MAX_ATTEMPTS ? null
+            refund.setNextRetryAt(refund.getAttemptCount() >= maxAttempts() ? null
                     : Instant.now().plus(refund.getAttemptCount() == 1 ? Duration.ofMinutes(15) : Duration.ofHours(2)));
             audit(actorId, "REFUND_FAILED", "REFUND", refund.getId(),
                     "attempt=" + refund.getAttemptCount() + ",code=" + safe(result.code()));
@@ -538,8 +633,10 @@ public class PaymentService {
         BigDecimal paid = subscriptionPayments.stream().filter(p -> p.getPaidAt() != null).map(Payment::getGrossAmount).reduce(ZERO, BigDecimal::add);
         BigDecimal refunded = subscriptionPayments.stream().map(Payment::getRefundedAmount).reduce(ZERO, BigDecimal::add);
         Long invoiceId = payment == null ? null : invoiceRepository.findByPaymentId(payment.getId()).map(Invoice::getId).orElse(null);
+        List<PaymentResponse> paymentResponses = subscriptionPayments.stream().map(this::toPayment).toList();
         return new SubscriptionPaymentSummaryResponse(subscriptionId, subscription.getTotalAmount(), paid, refunded,
-                paid.subtract(refunded).max(ZERO), "TRY", payment == null ? null : toPayment(payment), refunds, invoiceId);
+                paid.subtract(refunded).max(ZERO), "TRY", paymentResponses.stream().findFirst().orElse(null),
+                paymentResponses, refunds, invoiceId);
     }
 
     @Transactional(readOnly = true)
@@ -593,9 +690,11 @@ public class PaymentService {
 
     private Payment createPayment(Subscription subscription, String key, BigDecimal amount, boolean useMealBalance, Long deliveryId,
                                   MealBalanceTransactionType balanceType, String balanceDescription) {
-        CommissionRule rule = commissionRuleRepository.findApplicable(subscription.getStore().getId(), com.mealflex.subscription.service.SubscriptionDatePolicy.today()).stream().findFirst().orElseThrow(() -> new BusinessException("COMMISSION_RULE_MISSING", "Komisyon kuralı bulunamadı."));
+        BigDecimal commissionRate = commissionRuleRepository.findApplicable(subscription.getStore().getId(), com.mealflex.subscription.service.SubscriptionDatePolicy.today())
+                .stream().filter(rule -> rule.getStore() != null).findFirst().map(CommissionRule::getCommissionRate)
+                .orElseGet(platformSettingService::getCommissionRate);
         BigDecimal gross = money(amount);
-        BigDecimal commission = money(gross.multiply(rule.getCommissionRate()));
+        BigDecimal commission = money(gross.multiply(commissionRate));
         // Platform yalnızca tanımlı komisyonu keser; komisyon üzerinden ilave KDV düşülmez.
         BigDecimal tax = ZERO;
         Payment payment = paymentRepository.save(Payment.builder().subscription(subscription).customer(subscription.getCustomer()).store(subscription.getStore())
@@ -765,12 +864,32 @@ public class PaymentService {
         return cardAmount.subtract(consumed).subtract(payment.getRefundedAmount()).max(ZERO).setScale(2, RoundingMode.HALF_UP);
     }
 
+    private ProviderOperationService.ChargeExecution charge(Payment payment, Subscription subscription,
+                                                             BigDecimal amount, String key) {
+        PaymentMethod method = payment.getPaymentMethod();
+        if (method.getProviderCustomerToken() == null || method.getProviderCustomerToken().isBlank()) {
+            return providerOperationService.charge(payment.getId(), subscription.getId(), method.getProviderToken(),
+                    amount, payment.getCurrency(), key);
+        }
+        return providerOperationService.charge(payment.getId(), subscription.getId(), method.getProviderToken(),
+                method.getProviderCustomerToken(), method.getRegistrationIp(), amount, payment.getCurrency(), key);
+    }
+
     private PaymentMethod ownedMethod(Long userId, Long id) { return methodRepository.findByIdAndCustomerIdAndActiveTrue(id, userId).orElseThrow(() -> new ResourceNotFoundException("Ödeme yöntemi", id)); }
     private void clearDefaults(Long userId) { methodRepository.findByCustomerIdAndActiveTrueOrderByDefaultMethodDescCreatedAtDesc(userId).forEach(m -> { m.setDefaultMethod(false); methodRepository.save(m); }); }
     private PaymentMethodResponse toMethod(PaymentMethod m) { return new PaymentMethodResponse(m.getId(), m.getBrand(), m.getLastFour(), m.getExpiryMonth(), m.getExpiryYear(), m.isDefaultMethod(), expiresWithin(m, 60)); }
     private boolean isExpired(PaymentMethod method) { return java.time.YearMonth.of(method.getExpiryYear(), method.getExpiryMonth()).isBefore(java.time.YearMonth.from(com.mealflex.subscription.service.SubscriptionDatePolicy.today())); }
     private boolean expiresWithin(PaymentMethod method, long days) { return !isExpired(method) && java.time.YearMonth.of(method.getExpiryYear(), method.getExpiryMonth()).atEndOfMonth().isBefore(com.mealflex.subscription.service.SubscriptionDatePolicy.today().plusDays(days)); }
-    private PaymentResponse toPayment(Payment p) { return new PaymentResponse(p.getId(), p.getSubscription().getId(), p.getStatus(), p.getCurrency(), p.getGrossAmount(), p.getBalanceAmount(), effectiveCardAmount(p), campaignContribution(p), p.getCommissionAmount().add(p.getCommissionTaxAmount()), p.getRefundedAmount(), p.getNetAmount(), p.getPaymentMethod() == null ? null : p.getPaymentMethod().getBrand() + " •••• " + p.getPaymentMethod().getLastFour(), p.getFailureMessage(), p.getPaidAt(), p.getCreatedAt()); }
+    private PaymentResponse toPayment(Payment p) {
+        List<LocalDate> coveredDates = allocationRepository.findByPaymentIdOrderByDeliveryDeliveryDateAscIdAsc(p.getId())
+                .stream().map(allocation -> allocation.getDelivery().getDeliveryDate()).distinct().toList();
+        return new PaymentResponse(p.getId(), p.getSubscription().getId(), p.getStatus(), p.getCurrency(),
+                p.getGrossAmount(), p.getBalanceAmount(), effectiveCardAmount(p), campaignContribution(p),
+                p.getCommissionAmount().add(p.getCommissionTaxAmount()), p.getRefundedAmount(), p.getNetAmount(),
+                p.getStore().getName(), coveredDates,
+                p.getPaymentMethod() == null ? null : p.getPaymentMethod().getBrand() + " •••• " + p.getPaymentMethod().getLastFour(),
+                p.getFailureMessage(), p.getPaidAt(), p.getCreatedAt());
+    }
     private SellerFinanceMovementResponse toSellerFinanceMovement(Payment p) { return new SellerFinanceMovementResponse(p.getId(), p.getSubscription().getId(), p.getStatus(), p.getCurrency(), p.getRefundedAmount(), p.getNetAmount(), p.getCreatedAt()); }
     private RefundResponse toRefund(Refund r) { return new RefundResponse(r.getId(), r.getStatus(), r.getAmount(), r.getCurrency(), r.getReason(), r.getRefundedAt()); }
     private PayoutResponse toPayout(SellerPayout p) { return new PayoutResponse(p.getId(), p.getStatus(), p.getPeriodStart(), p.getPeriodEnd(), p.getCurrency(), p.getGrossAmount(), p.getCommissionAmount(), p.getRefundAmount(), p.getAdjustmentAmount(), p.getNetAmount(), p.getScheduledAt(), p.getPaidAt()); }
@@ -782,11 +901,12 @@ public class PaymentService {
     }
     private BigDecimal campaignContribution(Payment payment) { return payment.getIdempotencyKey().startsWith("subscription-approval-") ? Optional.ofNullable(payment.getSubscription().getDiscountAmount()).orElse(ZERO) : ZERO; }
     private String safe(String value) { return value == null ? null : value.replaceAll("(?i)(token|card|pan|cvv)=[^, ]+", "$1=***"); }
+    private int maxAttempts() { return platformSettingService.getInt(com.mealflex.platform.service.PlatformSettingService.PAYMENT_MAX_ATTEMPTS, 3); }
     private void scheduleDunning(Payment payment, int attemptNumber) {
         Instant now = Instant.now();
         if (payment.getCollectionFailedAt() == null) payment.setCollectionFailedAt(now);
         Subscription subscription = payment.getSubscription();
-        if (attemptNumber >= MAX_ATTEMPTS) {
+        if (attemptNumber >= maxAttempts()) {
             payment.setNextRetryAt(null);
             suspendForFailedCollection(payment);
             return;
@@ -809,7 +929,7 @@ public class PaymentService {
         }
         payment.setNextRetryAt(null);
         notify(subscription.getCustomer(), "Aboneliğiniz ödeme nedeniyle askıya alındı",
-                "Haftalık ödeme üç denemede alınamadı. Kartınızı güncelledikten sonra ödemeyi yeniden deneyin.", subscription.getId());
+                "Haftalık ödeme " + maxAttempts() + " denemede alınamadı. Kartınızı güncelledikten sonra ödemeyi yeniden deneyin.", subscription.getId());
         notify(subscription.getStore().getSeller().getUser(), "Abonelik ödeme nedeniyle askıya alındı",
                 "Abonelik #" + subscription.getId() + " için üretim ve teslimat ilerlemesi durduruldu.", subscription.getId());
         audit(subscription.getCustomer().getId(), "SUBSCRIPTION_PAYMENT_SUSPENDED", "SUBSCRIPTION",

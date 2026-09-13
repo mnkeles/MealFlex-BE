@@ -46,6 +46,7 @@ public class SellerDocumentService {
     private final UserRepository userRepository;
     private final AuditLogRepository auditLogRepository;
     private final NotificationEventService notificationEventService;
+    private final com.mealflex.platform.service.PlatformSettingService platformSettingService;
     @Value("${app.upload-dir:uploads}") private String uploadDir;
 
     @Transactional(readOnly = true)
@@ -173,7 +174,8 @@ public class SellerDocumentService {
         LocalDate today = com.mealflex.subscription.service.SubscriptionDatePolicy.today();
         for (SellerDocument d : documents) {
             if ("VERIFIED".equals(d.getVerificationStatus()) && (d.getExpiryDate() == null || !d.getExpiryDate().isBefore(today))) verified.add(d.getDocumentType());
-            if (d.getExpiryDate() != null && !d.getExpiryDate().isBefore(today) && !d.getExpiryDate().isAfter(today.plusDays(30))) expiring.add(d.getDocumentType());
+            int warningDays = platformSettingService.getInt(com.mealflex.platform.service.PlatformSettingService.SELLER_DOCUMENT_EXPIRY_WARNING_DAYS, 30);
+            if (d.getExpiryDate() != null && !d.getExpiryDate().isBefore(today) && !d.getExpiryDate().isAfter(today.plusDays(warningDays))) expiring.add(d.getDocumentType());
         }
         List<String> missing = REQUIRED_TYPES.stream().filter(type -> !verified.contains(type)).sorted().toList(); StoreOnboarding onboarding = onboardingRepository.findByStoreId(storeId).orElse(null);
         boolean contract = onboarding != null && onboarding.getContractAcceptedAt() != null; boolean ready = contract && missing.isEmpty();

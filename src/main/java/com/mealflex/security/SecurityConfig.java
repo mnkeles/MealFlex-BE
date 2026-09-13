@@ -62,6 +62,8 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/v1/auth/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/v1/payment-webhooks/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/v1/payments/iyzico/callback",
+                        "/v1/payments/iyzico/card-management/callback").permitAll()
                 .requestMatchers(HttpMethod.GET, "/v1/delivery-proofs/*/file").permitAll()
                 .requestMatchers(HttpMethod.GET, "/v1/menus/media/**").permitAll()
                 .requestMatchers("/swagger-ui/**", "/api-docs/**", "/swagger-ui.html").permitAll()

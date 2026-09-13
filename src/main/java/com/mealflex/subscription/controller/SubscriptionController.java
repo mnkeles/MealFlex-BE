@@ -14,6 +14,7 @@ import com.mealflex.subscription.dto.DeliveryModificationRequestResponse;
 import com.mealflex.subscription.dto.ChangeSubscriptionPaymentMethodRequest;
 import com.mealflex.subscription.dto.ExtendSubscriptionRequest;
 import com.mealflex.subscription.dto.AutoRenewSubscriptionRequest;
+import com.mealflex.subscription.dto.SubscriptionExtensionRequestResponse;
 import com.mealflex.subscription.entity.SubscriptionStatus;
 import com.mealflex.subscription.service.SubscriptionService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -38,8 +39,8 @@ public class SubscriptionController {
     private final SubscriptionService subscriptionService;
     private final com.mealflex.subscription.service.SubscriptionChangeService subscriptionChangeService;
     private final com.mealflex.subscription.service.DeliveryModificationService deliveryModificationService;
+    private final com.mealflex.subscription.service.SubscriptionExtensionRequestService extensionRequestService;
     private final com.mealflex.payment.service.PaymentService paymentService;
-    private final com.mealflex.subscription.service.SubscriptionRenewalService renewalService;
 
     @PostMapping
     @Operation(summary = "Abonelik talebi oluştur")
@@ -89,13 +90,20 @@ public class SubscriptionController {
     }
 
     @PostMapping("/{id}/extend")
-    @Operation(summary = "Devam eden aboneliği aynı koşullarla uzat")
-    public ResponseEntity<SubscriptionResponse> extendSubscription(
+    @Operation(summary = "Devam eden aboneliği uzatmak için satıcı onayı talep et")
+    public ResponseEntity<SubscriptionExtensionRequestResponse> extendSubscription(
             @AuthenticationPrincipal UserPrincipal principal,
             @PathVariable Long id,
             @Valid @RequestBody ExtendSubscriptionRequest request) {
-        return ResponseEntity.ok(subscriptionService.toSubscriptionResponse(
-                renewalService.extend(principal.getId(), id, request.newEndDate())));
+        return ResponseEntity.status(HttpStatus.CREATED).body(extensionRequestService.request(
+                principal.getId(), id, request.newEndDate()));
+    }
+
+    @GetMapping("/{id}/extension-requests")
+    @Operation(summary = "Aboneliğin dönem uzatma taleplerini listele")
+    public ResponseEntity<List<SubscriptionExtensionRequestResponse>> extensionRequests(
+            @AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id) {
+        return ResponseEntity.ok(extensionRequestService.getCustomerRequests(principal.getId(), id));
     }
 
     @PatchMapping("/{id}/auto-renew")
@@ -104,8 +112,8 @@ public class SubscriptionController {
             @AuthenticationPrincipal UserPrincipal principal,
             @PathVariable Long id,
             @RequestBody AutoRenewSubscriptionRequest request) {
-        return ResponseEntity.ok(subscriptionService.toSubscriptionResponse(
-                renewalService.setAutoRenew(principal.getId(), id, request.enabled())));
+        return ResponseEntity.ok(subscriptionService.setAutoRenew(
+                principal.getId(), id, request.enabled()));
     }
 
     @GetMapping("/{id}/events")

@@ -1,10 +1,8 @@
 package com.mealflex.subscription.dto;
 
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.NotNull;
 
 public record SellerCancelSubscriptionRequest(
-        @NotBlank(message = "İptal gerekçesi zorunludur.")
-        @Size(max = 500, message = "İptal gerekçesi en fazla 500 karakter olabilir.")
-        String reason) {
+        @NotNull(message = "İptal gerekçesi seçilmelidir.")
+        SellerRejectionReason reasonCode) {
 }

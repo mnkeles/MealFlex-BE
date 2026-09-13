@@ -1,0 +1,103 @@
+name: mealflex-staging
+
+x-logging: &default-logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+    networks: [internal]
+
+  backend:
+    image: mealflex-backend:${APP_VERSION:?APP_VERSION is required}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      FRONTEND_BASE_URL: ${PUBLIC_BASE_URL}
+      CORS_ALLOWED_ORIGINS: ${PUBLIC_BASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      PAYMENT_PROVIDER: MOCK
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET}
+      PAYOUT_PROVIDER: MOCK
+      NOTIFICATION_EXTERNAL_ENABLED: "false"
+      LOCATION_DISTANCE_ENGINE: HAVERSINE
+      APP_UPLOAD_DIR: /app/uploads
+    volumes:
+      - backend-uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose: ["9090"]
+    logging: *default-logging
+    networks: [internal]
+
+  frontend:
+    image: mealflex-frontend:${APP_VERSION:?APP_VERSION is required}
+    build:
+      context: ../../MealFlex-FE
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    expose: ["8080"]
+    logging: *default-logging
+    networks: [internal]
+
+  edge:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      frontend:
+        condition: service_healthy
+    environment:
+      PUBLIC_HOST: "${PUBLIC_HOST:?PUBLIC_HOST is required}"
+      TLS_EMAIL: "${TLS_EMAIL:?TLS_EMAIL is required}"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet -O /dev/null http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging: *default-logging
+    networks: [internal]
+
+volumes:
+  postgres-data:
+  backend-uploads:
+  caddy-data:
+  caddy-config:
+
+networks:
+  internal:
+    driver: bridge

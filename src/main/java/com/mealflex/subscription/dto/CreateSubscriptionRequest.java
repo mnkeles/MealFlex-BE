@@ -25,6 +25,8 @@ public class CreateSubscriptionRequest {
 
     private boolean commercialTermsAccepted;
 
+    private boolean recurringPaymentConsent;
+
     private String couponCode;
 
     @NotNull(message = "Kişi sayısı zorunludur.")

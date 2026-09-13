@@ -27,6 +27,7 @@ public class AdminComplaintService {
     private final ComplaintRepository complaints; private final PaymentRepository payments; private final PaymentService paymentService;
     private final CampaignRepository campaigns; private final SubscriptionDeliveryRepository deliveries;
     private final AuditLogRepository audits; private final NotificationEventService notifications;
+    private final com.mealflex.platform.service.PlatformSettingService platformSettingService;
 
     @Transactional
     public Complaint resolve(Long adminId, Long complaintId, ResolveComplaintRequest request) {
@@ -46,7 +47,7 @@ public class AdminComplaintService {
             amount=request.getAmount(); if(amount==null||amount.signum()<=0) throw new BusinessException("INVALID_COUPON_AMOUNT","Kupon tutarı sıfırdan büyük olmalıdır.");
             code="TELAFI-"+complaintId+"-"+UUID.randomUUID().toString().substring(0,8).toUpperCase(Locale.ROOT);
             campaigns.save(Campaign.builder().store(complaint.getStore()).targetCustomer(complaint.getCustomer()).code(code).name("Şikâyet telafisi #"+complaintId)
-                    .campaignType("FIXED").discountValue(amount).maxUsesPerCustomer(1).startDate(com.mealflex.subscription.service.SubscriptionDatePolicy.today()).endDate(com.mealflex.subscription.service.SubscriptionDatePolicy.today().plusDays(90))
+                    .campaignType("FIXED").discountValue(amount).maxUsesPerCustomer(1).startDate(com.mealflex.subscription.service.SubscriptionDatePolicy.today()).endDate(com.mealflex.subscription.service.SubscriptionDatePolicy.today().plusDays(platformSettingService.getInt(com.mealflex.platform.service.PlatformSettingService.COMPLAINT_COMPENSATION_COUPON_VALIDITY_DAYS, 90)))
                     .sellerShareRate(BigDecimal.ZERO).platformShareRate(BigDecimal.ONE).build());
         } else if("MAKEUP_DELIVERY".equals(type)) {
             if(complaint.getDelivery()==null||request.getCompensationDate()==null) throw new BusinessException("COMPENSATION_DELIVERY_REQUIRED","Telafi teslimatı ve tarihi zorunludur.");

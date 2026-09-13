@@ -35,10 +35,13 @@ class AdminComplaintServiceTest {
     @Mock SubscriptionDeliveryRepository deliveries;
     @Mock AuditLogRepository audits;
     @Mock NotificationEventService notifications;
+    @Mock com.mealflex.platform.service.PlatformSettingService platformSettingService;
     @InjectMocks AdminComplaintService service;
 
     @Test
     void couponResolutionIsCustomerSpecificAuditedAndNotified() {
+        when(platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.COMPLAINT_COMPENSATION_COUPON_VALIDITY_DAYS, 90)).thenReturn(90);
         User customer = User.builder().email("customer@example.com").password("x").build(); customer.setId(10L);
         User sellerUser = User.builder().email("seller@example.com").password("x").build(); sellerUser.setId(20L);
         Store store = Store.builder().name("Mağaza").seller(SellerProfile.builder().user(sellerUser).build()).build(); store.setId(30L);

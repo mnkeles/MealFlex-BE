@@ -39,6 +39,7 @@ class SellerDocumentServiceTest {
     @Mock private UserRepository userRepository;
     @Mock private AuditLogRepository auditLogRepository;
     @Mock private NotificationEventService notificationEventService;
+    @Mock private com.mealflex.platform.service.PlatformSettingService platformSettingService;
     @InjectMocks private SellerDocumentService documentService;
 
     @Test

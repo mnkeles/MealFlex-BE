@@ -41,7 +41,6 @@ import java.util.Set;
 public class StoreService {
 
     private static final ZoneId BUSINESS_TIME_ZONE = ZoneId.of("Europe/Istanbul");
-    private static final int CLOSED_DATE_NOTICE_DAYS = 2;
 
     private final StoreRepository storeRepository;
     private final SellerProfileRepository sellerProfileRepository;
@@ -60,6 +59,7 @@ public class StoreService {
     private final SellerDocumentService sellerDocumentService;
     private final SubscriptionServiceDayChangeService subscriptionServiceDayChangeService;
     private final com.mealflex.seller.service.SellerResponsePerformanceService sellerResponsePerformanceService;
+    private final com.mealflex.platform.service.PlatformSettingService platformSettingService;
 
     public static final Set<String> STORE_CATEGORIES = Set.of("TURK_MUTFAGI", "EV_YEMEKLERI", "SAGLIKLI", "VEGAN", "IZGARA", "SULU_YEMEK", "DUNYA_MUTFAGI", "FIT_MENULER");
     public static final Set<String> DIET_TAGS = Set.of(
@@ -106,19 +106,29 @@ public class StoreService {
         Address address = addressRepository.findByIdAndUserId(addressId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Adres", addressId));
 
-        List<Store> candidates = (search == null || search.isBlank()
-                ? storeRepository.findByServiceAreaAndStatus(
-                        address.getCity(), address.getDistrict(), StoreStatus.ACTIVE, Pageable.unpaged())
-                : storeRepository.searchByNameOrMenuName(
-                        address.getCity(), address.getDistrict(), search.trim(), Pageable.unpaged()))
-                .getContent();
+        java.util.Optional<Map<Long, StoreEligibilityService.Eligibility>> spatialDiscovery =
+                eligibilityService.findDiscoveryEligibility(address, search);
+        List<Store> candidates;
+        Map<Long, StoreEligibilityService.Eligibility> eligibleCandidates;
+        if (spatialDiscovery.isPresent()) {
+            eligibleCandidates = spatialDiscovery.get();
+            candidates = storeRepository.findAllById(eligibleCandidates.keySet());
+        } else {
+            candidates = (search == null || search.isBlank()
+                    ? storeRepository.findByServiceAreaAndStatus(
+                            address.getCity(), address.getDistrict(), StoreStatus.ACTIVE, Pageable.unpaged())
+                    : storeRepository.searchByNameOrMenuName(
+                            address.getCity(), address.getDistrict(), search.trim(), Pageable.unpaged()))
+                    .getContent();
+            eligibleCandidates = eligibilityService.evaluateAll(candidates, address);
+        }
 
         List<StoreResponse> matching = candidates.stream()
                 .distinct()
                 .filter(store -> !openOnly || !store.isTemporarilyClosed())
                 .filter(store -> category == null || category.isBlank() || store.getCategories().contains(category))
                 .filter(store -> matchesMenuMetadata(store.getId(), dietTag, excludedAllergen))
-                .flatMap(store -> eligibilityService.evaluate(store, address).stream()
+                .flatMap(store -> java.util.Optional.ofNullable(eligibleCandidates.get(store.getId())).stream()
                         .map(eligibility -> toResponse(store, eligibility)))
                 .filter(store -> minRating == null || store.getRating().compareTo(minRating) >= 0)
                 .filter(store -> maxMinPersonCount == null
@@ -375,7 +385,7 @@ public class StoreService {
     @Transactional
     public ClosedDateResponse addClosedDate(Long userId, Long storeId, java.time.LocalDate date, String reason) {
         Store store = getStoreForSeller(userId, storeId);
-        LocalDate earliestAllowedDate = com.mealflex.subscription.service.SubscriptionDatePolicy.today().plusDays(CLOSED_DATE_NOTICE_DAYS);
+        LocalDate earliestAllowedDate = com.mealflex.subscription.service.SubscriptionDatePolicy.today().plusDays(closedDateNoticeDays());
         if (date.isBefore(earliestAllowedDate)) {
             throw new BusinessException("CLOSED_DATE_NOTICE_REQUIRED",
                     "Kapalı gün en az 2 gün önceden tanımlanmalıdır.");
@@ -397,7 +407,7 @@ public class StoreService {
                                                        LocalDate endDate, String reason) {
         Store store = getStoreForSeller(userId, storeId);
         LocalDate earliestAllowedDate = com.mealflex.subscription.service.SubscriptionDatePolicy.today()
-                .plusDays(CLOSED_DATE_NOTICE_DAYS);
+                .plusDays(closedDateNoticeDays());
         if (startDate.isBefore(earliestAllowedDate)) {
             throw new BusinessException("CLOSED_DATE_NOTICE_REQUIRED",
                     "Kapalı gün en az 2 gün önceden tanımlanmalıdır.");
@@ -673,10 +683,16 @@ public class StoreService {
     public List<StoreResponse> getRecentViews(Long userId, Long addressId) {
         Address address = addressRepository.findByIdAndUserId(addressId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Adres", addressId));
-        return storeViewRepository.findByUserIdOrderByViewedAtDesc(userId, Pageable.ofSize(8)).stream()
+        List<Store> recentStores = storeViewRepository.findByUserIdOrderByViewedAtDesc(userId, Pageable.ofSize(8)).stream()
                 .map(StoreView::getStore)
                 .filter(store -> store.getStatus() == StoreStatus.ACTIVE && store.getDeletedAt() == null)
-                .flatMap(store -> eligibilityService.evaluate(store, address).stream().map(eligibility -> toResponse(store, eligibility)))
+                .distinct()
+                .toList();
+        Map<Long, StoreEligibilityService.Eligibility> eligibleStores =
+                eligibilityService.evaluateAll(recentStores, address);
+        return recentStores.stream()
+                .flatMap(store -> java.util.Optional.ofNullable(eligibleStores.get(store.getId())).stream()
+                        .map(eligibility -> toResponse(store, eligibility)))
                 .toList();
     }
 
@@ -701,7 +717,7 @@ public class StoreService {
         List<StoreDeliverySlot> slots = deliverySlotRepository.findByStoreIdOrderByDeliveryTime(storeId);
         if (slots.isEmpty()) return null;
         List<BusinessHour> hours = businessHourRepository.findByStoreIdOrderByDayOfWeek(storeId);
-        LocalDate start = com.mealflex.subscription.service.SubscriptionDatePolicy.today().plusDays(2);
+        LocalDate start = com.mealflex.subscription.service.SubscriptionDatePolicy.today().plusDays(closedDateNoticeDays());
         Set<LocalDate> closedDates = closedDateRepository
                 .findByStoreIdAndClosedDateBetween(storeId, start, start.plusDays(59))
                 .stream().map(StoreClosedDate::getClosedDate).collect(java.util.stream.Collectors.toSet());
@@ -712,6 +728,10 @@ public class StoreService {
                     slot.getDeliveryTime(), List.of(date), hours))) return date;
         }
         return null;
+    }
+
+    private int closedDateNoticeDays() {
+        return platformSettingService.getInt(com.mealflex.platform.service.PlatformSettingService.STORE_CLOSED_DATE_NOTICE_DAYS, 2);
     }
 
     private List<LocalTime> availableTimes(Long storeId, LocalDate date) {

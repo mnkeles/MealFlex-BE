@@ -1,0 +1,11 @@
+[Unit]
+Description=Run MealFlex staging backup every night
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 Europe/Istanbul
+RandomizedDelaySec=5min
+Persistent=true
+Unit=mealflex-backup.service
+
+[Install]
+WantedBy=timers.target

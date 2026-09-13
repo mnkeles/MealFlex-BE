@@ -31,8 +31,12 @@ import com.mealflex.store.service.StoreCapacityService;
 import com.mealflex.store.service.StoreEligibilityService;
 import com.mealflex.store.service.SellerStoreAccessService;
 import com.mealflex.subscription.entity.Subscription;
+import com.mealflex.subscription.entity.SubscriptionExtensionRequestStatus;
+import com.mealflex.subscription.entity.DeliveryModificationRequestStatus;
 import com.mealflex.subscription.entity.SubscriptionStatus;
 import com.mealflex.subscription.dto.CreateSubscriptionRequest;
+import com.mealflex.subscription.repository.DeliveryModificationHistoryRepository;
+import com.mealflex.subscription.repository.SubscriptionExtensionRequestRepository;
 import com.mealflex.subscription.repository.SubscriptionRepository;
 import com.mealflex.user.entity.User;
 import com.mealflex.user.repository.UserRepository;
@@ -86,6 +90,9 @@ class SubscriptionServiceTest {
     @Mock private CampaignService campaignService;
     @Mock private com.mealflex.seller.repository.SellerSlaEventRepository sellerSlaEventRepository;
     @Mock private com.mealflex.platform.service.PlatformSettingService platformSettingService;
+    @Mock private SubscriptionRenewalService renewalService;
+    @Mock private SubscriptionExtensionRequestRepository extensionRequestRepository;
+    @Mock private DeliveryModificationHistoryRepository deliveryModificationHistoryRepository;
 
     private StoreCapacityService storeCapacityService;
     private SubscriptionService service;
@@ -112,12 +119,15 @@ class SubscriptionServiceTest {
         service = new SubscriptionService(subscriptionRepository, storeRepository, userRepository, deliveryRepository,
                 notificationEventService, reviewRepository, auditLogRepository, storeAccessService, paymentService,
                 eventStream, menuVersionService, campaignService, preparationService, lifecycleService,
+                renewalService, extensionRequestRepository, deliveryModificationHistoryRepository,
                 platformSettingService);
 
         lenient().when(platformSettingService.getInt(
                 com.mealflex.platform.service.PlatformSettingService.MIN_SERVICE_DAYS, 5)).thenReturn(5);
         lenient().when(platformSettingService.getInt(
                 com.mealflex.platform.service.PlatformSettingService.APPROVAL_SLA_HOURS, 72)).thenReturn(72);
+        lenient().when(platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.SUBSCRIPTION_REQUEST_MIN_LEAD_DAYS, 2)).thenReturn(2);
 
         customer = User.builder().firstName("Ayşe").lastName("Yılmaz").email("a@example.com").password("x").build();
         customer.setId(10L);
@@ -212,6 +222,21 @@ class SubscriptionServiceTest {
             assertThat(result.getCourierPhone()).isEqualTo("+90 532 123 45 67");
             assertThat(result.getCourierPhoneMasked()).isEqualTo("•••• ••• 4567");
         });
+    }
+
+    @Test
+    void extensionIsMappedToResponseInsideSubscriptionServiceTransaction() {
+        subscription.setStatus(SubscriptionStatus.ACTIVE);
+        LocalDate newEndDate = subscription.getEndDate().plusDays(7);
+        subscription.setEndDate(newEndDate);
+        when(renewalService.extend(10L, 50L, newEndDate)).thenReturn(subscription);
+
+        var response = service.extendSubscription(10L, 50L, newEndDate);
+
+        assertThat(response.getEndDate()).isEqualTo(newEndDate);
+        assertThat(response.getStoreName()).isEqualTo("Test Mağaza");
+        assertThat(response.getAddressTitle()).isEqualTo("Ofis");
+        verify(renewalService).extend(10L, 50L, newEndDate);
     }
 
     @Test
@@ -392,18 +417,22 @@ class SubscriptionServiceTest {
     }
 
     @Test
-    void sellerLiveRequestInboxUsesOwnedStoreSseUnreadCounterAndMarksOnlyNewRequestsViewed() {
+    void sellerLiveRequestInboxCountsEveryPendingApprovalTypeAndMarksOnlyNewSubscriptionsViewed() {
         Subscription unread = Subscription.builder().status(SubscriptionStatus.PENDING_APPROVAL).build(); unread.setId(61L);
         Subscription alreadyViewed = Subscription.builder().status(SubscriptionStatus.PENDING_APPROVAL).sellerViewedAt(Instant.now().minusSeconds(60)).build(); alreadyViewed.setId(62L);
         SseEmitter emitter = new SseEmitter();
         when(eventStream.subscribe(20L)).thenReturn(emitter);
-        when(subscriptionRepository.countByStoreIdAndStatusInAndSellerViewedAtIsNull(20L,
-                List.of(SubscriptionStatus.PENDING_APPROVAL))).thenReturn(1L);
+        when(subscriptionRepository.countByStoreIdAndStatusIn(20L,
+                List.of(SubscriptionStatus.PENDING_APPROVAL))).thenReturn(2L);
+        when(extensionRequestRepository.countPendingByStoreId(20L,
+                SubscriptionExtensionRequestStatus.PENDING)).thenReturn(3L);
+        when(deliveryModificationHistoryRepository.countPendingByStoreId(20L,
+                DeliveryModificationRequestStatus.PENDING)).thenReturn(4L);
         when(subscriptionRepository.findByStoreIdAndStatusIn(20L,
                 List.of(SubscriptionStatus.PENDING_APPROVAL))).thenReturn(List.of(unread, alreadyViewed));
 
         assertThat(service.subscribeToStoreEvents(10L, 20L)).isSameAs(emitter);
-        assertThat(service.unreadPendingCount(10L, 20L)).isEqualTo(1L);
+        assertThat(service.unreadPendingCount(10L, 20L)).isEqualTo(9L);
         service.markPendingViewed(10L, 20L);
 
         assertThat(unread.getSellerViewedAt()).isNotNull();

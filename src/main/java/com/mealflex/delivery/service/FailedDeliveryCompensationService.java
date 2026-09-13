@@ -37,7 +37,6 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class FailedDeliveryCompensationService {
 
-    private static final int SUGGESTION_SEARCH_DAYS = 90;
     private static final SecureRandom DELIVERY_CODE_RANDOM = new SecureRandom();
 
     private final SubscriptionDeliveryRepository deliveryRepository;
@@ -48,6 +47,7 @@ public class FailedDeliveryCompensationService {
     private final StoreCapacityService capacityService;
     private final NotificationEventService notifications;
     private final AuditLogRepository audits;
+    private final com.mealflex.platform.service.PlatformSettingService platformSettingService;
 
     @Transactional
     public void offer(SubscriptionDelivery failedDelivery) {
@@ -170,7 +170,9 @@ public class FailedDeliveryCompensationService {
         Long storeId = source.getSubscription().getStore().getId();
         LocalDate today = SubscriptionDatePolicy.today();
         LocalDate start = today.isAfter(source.getDeliveryDate()) ? today.plusDays(1) : source.getDeliveryDate().plusDays(1);
-        LocalDate end = start.plusDays(SUGGESTION_SEARCH_DAYS);
+        int searchDays = platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.FAILED_DELIVERY_COMPENSATION_SEARCH_DAYS, 90);
+        LocalDate end = start.plusDays(searchDays);
         Set<DayOfWeek> closedWeekdays = new HashSet<>();
         for (BusinessHour hour : businessHourRepository.findByStoreIdOrderByDayOfWeek(storeId)) {
             if (!hour.isOpen()) closedWeekdays.add(hour.getDayOfWeek());

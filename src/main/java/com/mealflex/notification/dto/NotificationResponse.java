@@ -15,5 +15,6 @@ public class NotificationResponse {
     private Instant readAt;
     private String referenceType;
     private Long referenceId;
+    private String targetUrl;
     private Instant createdAt;
 }

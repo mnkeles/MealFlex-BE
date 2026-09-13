@@ -25,8 +25,6 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SubscriptionRequestPreparationService {
 
-    private static final int MIN_LEAD_DAYS = 2;
-
     private final UserRepository userRepository;
     private final StoreRepository storeRepository;
     private final MenuRepository menuRepository;
@@ -73,9 +71,11 @@ public class SubscriptionRequestPreparationService {
             throw new BusinessException("MENU_NOT_AVAILABLE_FOR_PERIOD",
                     "Seçilen menü abonelik tarih aralığının tamamında sunulmuyor.");
         }
-        if (request.getStartDate().isBefore(SubscriptionDatePolicy.today().plusDays(MIN_LEAD_DAYS))) {
+        int minimumLeadDays = platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.SUBSCRIPTION_REQUEST_MIN_LEAD_DAYS, 2);
+        if (request.getStartDate().isBefore(SubscriptionDatePolicy.today().plusDays(minimumLeadDays))) {
             throw new BusinessException("INVALID_START_DATE",
-                    "Başlangıç tarihi en az " + MIN_LEAD_DAYS + " gün sonrası olmalıdır.");
+                    "Başlangıç tarihi en az " + minimumLeadDays + " gün sonrası olmalıdır.");
         }
 
         List<LocalDate> serviceDays = deliveryPlanningService.calculateServiceDays(

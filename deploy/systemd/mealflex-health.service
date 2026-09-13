@@ -1,0 +1,16 @@
+[Unit]
+Description=MealFlex staging health, TLS, disk and backup check
+Requires=docker.service
+After=docker.service network-online.target
+OnFailure=mealflex-alert@%n.service
+
+[Service]
+Type=oneshot
+User=mealflex
+Group=docker
+WorkingDirectory=/opt/mealflex/MealFlex-BE/deploy
+ExecStart=/bin/sh /opt/mealflex/MealFlex-BE/deploy/check-staging.sh
+TimeoutStartSec=2min
+
+[Install]
+WantedBy=multi-user.target

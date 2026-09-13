@@ -39,6 +39,7 @@ public class AdminOperationsController {
     private final PaymentRepository paymentRepository;
     private final AuditLogRepository auditLogRepository;
     private final RiskCaseRepository riskCaseRepository;
+    private final com.mealflex.platform.service.PlatformSettingService platformSettingService;
 
     @GetMapping("/operations/summary")
     @org.springframework.transaction.annotation.Transactional(readOnly = true)
@@ -50,7 +51,9 @@ public class AdminOperationsController {
         if (end.isAfter(start.plusDays(90))) throw new BusinessException("DATE_RANGE_TOO_LONG", "Operasyon özeti en fazla 91 günlük alınabilir.");
         Instant rangeStart = start.atStartOfDay(com.mealflex.subscription.service.SubscriptionDatePolicy.ZONE).toInstant();
         Instant rangeEnd = end.plusDays(1).atStartOfDay(com.mealflex.subscription.service.SubscriptionDatePolicy.ZONE).toInstant();
-        Instant complaintDeadline = Instant.now().minus(Duration.ofHours(24));
+        int complaintSlaHours = platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.COMPLAINT_RESPONSE_SLA_HOURS, 24);
+        Instant complaintDeadline = Instant.now().minus(Duration.ofHours(complaintSlaHours));
         var deliveries = deliveryRepository.findForAdminOperations(start, end, storeId);
         var payments = paymentRepository.findForAdminOperations(rangeStart, rangeEnd, storeId);
         var complaints = complaintRepository.findForAdminOperations(rangeStart, rangeEnd, storeId);
@@ -67,7 +70,7 @@ public class AdminOperationsController {
                 && ((d.getDelayMinutes() != null && d.getDelayMinutes() >= 30) || (d.getEstimatedDeliveryAt() != null && d.getEstimatedDeliveryAt().isBefore(Instant.now())))).limit(20)
                 .forEach(d -> alerts.add(Map.of("type", "DELAYED_DELIVERY", "id", d.getId(), "title", "Geciken teslimat", "detail", d.getDeliveryDate() + " · " + d.getSubscription().getStore().getName())));
         complaints.stream().filter(c -> c.getStatus() != ComplaintStatus.RESOLVED && c.getCreatedAt().isBefore(complaintDeadline)).limit(20)
-                .forEach(c -> alerts.add(Map.of("type", "COMPLAINT_SLA", "id", c.getId(), "title", "24 saati aşan şikâyet", "detail", "Şikâyet #" + c.getId())));
+                .forEach(c -> alerts.add(Map.of("type", "COMPLAINT_SLA", "id", c.getId(), "title", complaintSlaHours + " saati aşan şikâyet", "detail", "Şikâyet #" + c.getId())));
         payments.stream().filter(p -> p.getStatus() == PaymentStatus.FAILED).limit(20)
                 .forEach(p -> alerts.add(Map.of("type", "FAILED_PAYMENT", "id", p.getId(), "title", "Başarısız ödeme", "detail", "Ödeme #" + p.getId() + " · " + p.getStore().getName())));
         pendingSubscriptionItems.stream().limit(20)

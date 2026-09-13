@@ -32,6 +32,7 @@ public class StoreStaffService {
     private final SellerStoreAccessService storeAccess;
     private final UserRepository users;
     private final AuditLogRepository auditLogs;
+    private final com.mealflex.platform.service.PlatformSettingService platformSettingService;
 
     public static Set<String> permissions(String role) {
         return switch (role) {
@@ -79,7 +80,8 @@ public class StoreStaffService {
         staff.setStaffRole(role);
         staff.setStatus("INVITED");
         staff.setInvitationTokenHash(AccountSecurityService.hash(rawToken));
-        staff.setInvitationExpiresAt(Instant.now().plus(Duration.ofDays(7)));
+        staff.setInvitationExpiresAt(Instant.now().plus(Duration.ofDays(platformSettingService.getInt(
+                com.mealflex.platform.service.PlatformSettingService.SELLER_STAFF_INVITATION_EXPIRY_DAYS, 7))));
         staff.setDeactivatedAt(null);
         staff = repository.save(staff);
         audit(ownerId, "STAFF_INVITED", staff, "role=" + role);

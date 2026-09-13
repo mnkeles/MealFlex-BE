@@ -22,6 +22,7 @@
         <mapstruct.version>1.5.5.Final</mapstruct.version>
         <jjwt.version>0.12.6</jjwt.version>
         <jacoco.version>0.8.12</jacoco.version>
+        <iyzipay.version>2.0.142</iyzipay.version>
     </properties>
 
     <dependencies>
@@ -49,6 +50,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Hosted Checkout Form + token based iyzico payments. Card data never enters MealFlex. -->
+        <dependency>
+            <groupId>com.iyzipay</groupId>
+            <artifactId>iyzipay-java</artifactId>
+            <version>${iyzipay.version}</version>
         </dependency>
 
         <!-- Database -->

@@ -124,7 +124,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleGenericException(Exception ex) {
-        log.error("Unexpected error type: {}", ex.getClass().getSimpleName());
+        log.error("Unexpected error type: {}", ex.getClass().getSimpleName(), ex);
         ApiError error = ApiError.builder()
                 .code("INTERNAL_ERROR")
                 .message("Beklenmeyen bir hata oluştu.")
