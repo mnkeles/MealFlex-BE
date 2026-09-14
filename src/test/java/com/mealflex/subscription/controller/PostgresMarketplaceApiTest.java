@@ -17,6 +17,7 @@ import com.mealflex.store.entity.StoreDistanceRule;
 import com.mealflex.store.entity.StoreStatus;
 import com.mealflex.subscription.entity.Subscription;
 import com.mealflex.subscription.service.SubscriptionDatePolicy;
+import com.mealflex.user.entity.Role;
 import com.mealflex.user.entity.User;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
@@ -168,13 +169,19 @@ class PostgresMarketplaceApiTest {
     }
 
     private Scenario createScenario() {
-        User customer = entityManager.createQuery(
-                "select u from User u where u.email='customer@mealflex.com'", User.class).getSingleResult();
-        User seller = entityManager.createQuery(
-                "select u from User u where u.email='seller@mealflex.com'", User.class).getSingleResult();
-        SellerProfile sellerProfile = entityManager.createQuery(
-                "select s from SellerProfile s where s.user.id=:seller", SellerProfile.class)
-                .setParameter("seller", seller.getId()).getSingleResult();
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        User customer = User.builder().email("qa-customer-" + suffix + "@mealflex.test")
+                .password("qa-only").firstName("QA").lastName("Customer").role(Role.CUSTOMER)
+                .emailVerified(true).active(true).build();
+        User seller = User.builder().email("qa-seller-" + suffix + "@mealflex.test")
+                .password("qa-only").firstName("QA").lastName("Seller").role(Role.SELLER)
+                .emailVerified(true).active(true).build();
+        entityManager.persist(customer);
+        entityManager.persist(seller);
+        SellerProfile sellerProfile = SellerProfile.builder().user(seller).companyTitle("QA Catering Ltd.")
+                .taxNumber("1234567890").taxOffice("QA VD").authorizedPerson("QA Seller")
+                .phone("5550000000").build();
+        entityManager.persist(sellerProfile);
         Store store = Store.builder().seller(sellerProfile).name("QA API Mutfağı")
                 .description("Gerçek API akış testi mağazası").minPersonCount(5).maxPersonCount(50)
                 .dailyCapacity(100).latitude(new BigDecimal("39.9334000"))

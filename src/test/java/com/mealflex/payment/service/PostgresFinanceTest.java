@@ -3,11 +3,16 @@ package com.mealflex.payment.service;
 import com.mealflex.address.entity.Address;
 import com.mealflex.delivery.entity.SubscriptionDelivery;
 import com.mealflex.menu.entity.Menu;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.payment.entity.*;
 import com.mealflex.payment.provider.PaymentProvider;
+import com.mealflex.platform.service.PlatformSettingService;
+import com.mealflex.seller.entity.SellerProfile;
 import com.mealflex.store.entity.Store;
+import com.mealflex.store.entity.StoreStatus;
 import com.mealflex.store.service.SellerStoreAccessService;
 import com.mealflex.subscription.entity.*;
+import com.mealflex.user.entity.Role;
 import com.mealflex.user.entity.User;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
@@ -32,7 +37,7 @@ import static org.mockito.Mockito.*;
 @DataJpaTest(showSql=false, properties={"spring.jpa.hibernate.ddl-auto=validate", "spring.jpa.show-sql=false", "logging.level.org.hibernate.SQL=WARN"})
 @AutoConfigureTestDatabase(replace=AutoConfigureTestDatabase.Replace.NONE)
 @Import({PaymentService.class, MealBalanceService.class, SellerPayoutService.class,
-        ProviderOperationService.class, PayoutRefundAdjustmentService.class})
+        ProviderOperationService.class, PayoutRefundAdjustmentService.class, PlatformSettingService.class})
 @Transactional(propagation=Propagation.NOT_SUPPORTED)
 @EnabledIfEnvironmentVariable(named="MEALFLEX_QA_DB_URL", matches="jdbc:postgresql://localhost:5432/mealflex_qa_[0-9_]+")
 class PostgresFinanceTest {
@@ -47,6 +52,7 @@ class PostgresFinanceTest {
     @Autowired SellerPayoutService payouts;
     @MockBean PaymentProvider provider;
     @MockBean SellerStoreAccessService storeAccess;
+    @MockBean NotificationEventService notifications;
 
     @Autowired javax.sql.DataSource dataSource;
 
@@ -73,7 +79,7 @@ class PostgresFinanceTest {
     @Test void upgradeInvalidatesAutomaticMatchesButPreservesReviewedRecords() {
         String schema = "qa_upgrade_" + java.util.UUID.randomUUID().toString().replace("-", "");
         org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
-                .target("43").load().migrate();
+                .locations("classpath:db/migration-legacy").target("43").load().migrate();
         var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
         jdbc.update("INSERT INTO " + schema + ".finance_reconciliations "
                 + "(reconciliation_date, provider_collected_amount, ledger_collected_amount, discrepancy_amount, status) "
@@ -82,8 +88,9 @@ class PostgresFinanceTest {
                 + "(reconciliation_date, provider_collected_amount, ledger_collected_amount, discrepancy_amount, status, resolution_note, resolved_at) "
                 + "VALUES ('2026-09-02',90,100,-10,'RESOLVED','Reviewed evidence','2026-09-03T12:00:00Z')");
 
-        var upgrade = org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema).load();
-        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(4);
+        var upgrade = org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
+                .locations("classpath:db/migration-legacy").load();
+        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(22);
         var automatic = jdbc.queryForMap("SELECT * FROM " + schema + ".finance_reconciliations WHERE reconciliation_date='2026-09-01'");
         assertThat(automatic.get("status")).isEqualTo("PROVIDER_UNAVAILABLE");
         assertThat(automatic.get("provider_collected_amount")).isNull();
@@ -104,8 +111,24 @@ class PostgresFinanceTest {
         TransactionTemplate tx = new TransactionTemplate(transactions);
         LocalDate monday = LocalDate.of(2026, 9, 7);
         Long id = tx.execute(status -> {
-            User customer = em.createQuery("select u from User u where u.role = com.mealflex.user.entity.Role.CUSTOMER", User.class).setMaxResults(1).getSingleResult();
-            Store store = em.createQuery("select s from Store s", Store.class).setMaxResults(1).getSingleResult();
+            String suffix = java.util.UUID.randomUUID().toString().substring(0, 8);
+            User customer = User.builder().email("qa-finance-customer-" + suffix + "@mealflex.test")
+                    .password("qa-only").firstName("QA").lastName("Customer").role(Role.CUSTOMER)
+                    .emailVerified(true).active(true).build();
+            User seller = User.builder().email("qa-finance-seller-" + suffix + "@mealflex.test")
+                    .password("qa-only").firstName("QA").lastName("Seller").role(Role.SELLER)
+                    .emailVerified(true).active(true).build();
+            em.persist(customer);
+            em.persist(seller);
+            SellerProfile sellerProfile = SellerProfile.builder().user(seller).companyTitle("QA Finance Ltd.")
+                    .taxNumber("1234567890").taxOffice("QA VD").authorizedPerson("QA Seller")
+                    .phone("5550000000").build();
+            em.persist(sellerProfile);
+            Store store = Store.builder().seller(sellerProfile).name("QA Finance Kitchen " + suffix)
+                    .minPersonCount(5).maxPersonCount(50).dailyCapacity(100)
+                    .latitude(new BigDecimal("39.95")).longitude(new BigDecimal("32.80"))
+                    .status(StoreStatus.ACTIVE).build();
+            em.persist(store);
             Address address = Address.builder().user(customer).title("QA").city("Ankara").district("Yenimahalle")
                     .latitude(new BigDecimal("39.95")).longitude(new BigDecimal("32.80")).build(); em.persist(address);
             Menu menu = Menu.builder().store(store).name("QA menu").pricePerPerson(BigDecimal.TEN).build(); em.persist(menu);

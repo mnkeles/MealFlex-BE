@@ -1,11 +1,35 @@
 -- MealFlex geliştirme ortamı için tekrar çalıştırılabilir test verisi.
--- Mevcut customer@mealflex.com, seller@mealflex.com ve Fatma'nın Mutfağı kayıtlarını kullanır.
+-- customer@mealflex.com, seller@mealflex.com ve Fatma'nın Mutfağı kayıtlarını oluşturur/kullanır.
 -- Bu dosya Flyway migration değildir; yalnız geliştirme veritabanında psql ile çalıştırılır.
 
 BEGIN;
 
--- Temiz Flyway kurulumu yalnız kullanıcı ve mağaza oluşturur. Aşağıdaki temel
--- kayıtlar, bu dosyanın tek başına çalıştırıldığında da test senaryoları üretmesini sağlar.
+-- Temiz Flyway kurulumu yalnız şemayı oluşturur. Aşağıdaki temel kayıtlar,
+-- bu dosyanın tek başına çalıştırıldığında da test senaryoları üretmesini sağlar.
+INSERT INTO users (email, password, first_name, last_name, phone, role, email_verified, active)
+VALUES
+  ('customer@mealflex.com', '$2a$10$dXJ3SW6G7P50lGmMkkmwe.20cQQubK3.HZWzG3YB1tlRy.fqvM/BG', 'Ahmet', 'Yılmaz', '5551112233', 'CUSTOMER', true, true),
+  ('seller@mealflex.com',   '$2a$10$dXJ3SW6G7P50lGmMkkmwe.20cQQubK3.HZWzG3YB1tlRy.fqvM/BG', 'Fatma', 'Kaya',   '5552223344', 'SELLER',   true, true),
+  ('admin@mealflex.com',    '$2a$10$dXJ3SW6G7P50lGmMkkmwe.20cQQubK3.HZWzG3YB1tlRy.fqvM/BG', 'Admin', 'User',   '5553334455', 'ADMIN',    true, true)
+ON CONFLICT (email) DO NOTHING;
+
+INSERT INTO customer_profiles (user_id, company_name, tax_number, tax_office, invoice_address)
+SELECT id, 'Ahmet Yılmaz A.Ş.', '1234567890', 'Kadıköy VD', 'Kadıköy, İstanbul'
+FROM users WHERE email = 'customer@mealflex.com'
+ON CONFLICT (user_id) DO NOTHING;
+
+INSERT INTO seller_profiles (user_id, company_title, tax_number, tax_office, authorized_person, phone, bank_name, iban)
+SELECT id, 'Fatma Catering Ltd.', '9876543210', 'Beşiktaş VD', 'Fatma Kaya', '5552223344', 'Test Bankası', 'TR330006100519786457841326'
+FROM users WHERE email = 'seller@mealflex.com'
+ON CONFLICT (user_id) DO NOTHING;
+
+INSERT INTO stores (seller_id, name, description, min_person_count, max_person_count, daily_capacity, latitude, longitude, status, rating, review_count)
+SELECT sp.id, 'Fatma''nın Mutfağı', 'Ev yapımı yemekler, günlük taze hazırlanan menüler.', 5, 50, 100, 39.9600000, 32.6900000, 'ACTIVE', 4.5, 0
+FROM seller_profiles sp
+JOIN users u ON sp.user_id = u.id
+WHERE u.email = 'seller@mealflex.com'
+  AND NOT EXISTS (SELECT 1 FROM stores s WHERE s.seller_id = sp.id AND s.name = 'Fatma''nın Mutfağı' AND s.deleted_at IS NULL);
+
 INSERT INTO addresses (user_id, title, city, district, neighborhood, street, building_no, floor, apartment_no,
                        full_address, latitude, longitude, default_address, created_at, updated_at)
 SELECT u.id, 'Ev', 'Ankara', 'Etimesgut', '30 Ağustos', '2107. Sokak', '13', '2', '8',

@@ -111,6 +111,20 @@ inceleme için korunur. PostgreSQL 15/psql yolu bulunamazsa PATH'teki psql kulla
 Test gerçek PostgreSQL/Flyway/JPA kullanır; ödeme sağlayıcısı mock'tur ve gerçek
 para çekmez. Normal `mvn verify` koşusunda bu opt-in test atlanır.
 
+## Flyway başlangıç şeması
+
+Yeni veritabanları için aktif Flyway dizininde yalnızca
+`src/main/resources/db/migration/V1__initial_schema.sql` bulunur. Bu dosya,
+önceki V1--V65 şemasının verisiz başlangıç görüntüsüdür; production'a test
+hesabı eklemez. Eski geçişler, yalnız geçmişe dönük upgrade regresyon testi
+için `src/test/resources/db/migration-legacy/` altında tutulur ve production
+paketinin Flyway konumuna dahil edilmez.
+
+Önceki migration geçmişi bulunan yerel bir veritabanı yeni başlangıç şemasıyla
+uyumlu değildir. Geliştirme ortamında veriyi korumaya gerek yoksa veritabanını
+yeniden oluşturun, ardından isteğe bağlı test verisi için
+`src/main/resources/db/seed/dev_test_data.sql` dosyasını çalıştırın.
+
 V43, yeni tahsilatların teslimat bazındaki dağılımını `payment_allocations`
 tablosunda tutar. Tahsilat öncesi kişi azaltımı ilgili haftadan düşülür;
 tahsilat sonrası azaltım öğün bakiyesine döner. Kısmi iadeler hakedişi azaltır.
