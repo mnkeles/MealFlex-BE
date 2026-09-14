@@ -46,13 +46,13 @@ upserted AS (
     INSERT INTO subscriptions (
         customer_id, store_id, menu_id, address_id, person_count, price_per_person,
         delivery_time, start_date, end_date, service_day_count, total_amount,
-        status, approved_at, postponed_count, idempotency_key, menu_name_snapshot,
+        status, approved_at, idempotency_key, menu_name_snapshot,
         discount_amount, created_at, updated_at
     )
     SELECT customer_id, store_id, menu_id, address_id, person_count, price_per_person,
            delivery_time, start_date, end_date, service_day_count,
            ROUND(price_per_person * person_count * service_day_count, 2),
-           'ACTIVE', NOW() - INTERVAL '1 hour', 0, idempotency_key, menu_name,
+           'ACTIVE', NOW() - INTERVAL '1 hour', idempotency_key, menu_name,
            0, NOW(), NOW()
       FROM source
     ON CONFLICT (customer_id, idempotency_key) WHERE idempotency_key IS NOT NULL
