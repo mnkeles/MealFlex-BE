@@ -63,6 +63,12 @@ case "$public_host" in
         failed=1
         ;;
 esac
+case "$public_host" in
+    example.com|*.example.com|example.test|*.example.test)
+        echo "PUBLIC_HOST örnek alan adı olarak bırakılmamalı." >&2
+        failed=1
+        ;;
+esac
 if printf '%s' "$public_host" | grep -Eq '^[0-9.]+$'; then
     echo "PUBLIC_HOST IP adresi değil alan adı olmalı." >&2
     failed=1

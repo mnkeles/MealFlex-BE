@@ -37,8 +37,11 @@ for service in postgres backend frontend edge; do
     echo "PASS $service çalışıyor ve healthy"
 done
 
-http_status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
-    --max-time 20 "http://$public_host/")
+if ! http_status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+    --max-time 20 "http://$public_host/"); then
+    echo "HTTP yönlendirme kontrolü alan adına bağlanamadı." >&2
+    exit 1
+fi
 case "$http_status" in
     301|302|307|308) echo "PASS HTTP, HTTPS'e yönleniyor ($http_status)" ;;
     *)
@@ -47,31 +50,43 @@ case "$http_status" in
         ;;
 esac
 
-health_body=$(curl --fail --silent --show-error --max-time 20 \
-    "$public_base_url/api/actuator/health/readiness")
+if ! health_body=$(curl --fail --silent --show-error --max-time 20 \
+    "$public_base_url/api/actuator/health/readiness"); then
+    echo "HTTPS readiness endpointine bağlanılamadı." >&2
+    exit 1
+fi
 if ! printf '%s' "$health_body" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"UP"'; then
     echo "Readiness endpointi UP döndürmedi." >&2
     exit 1
 fi
 echo "PASS HTTPS readiness UP"
 
-headers=$(curl --fail --silent --show-error --head --max-time 20 "$public_base_url/")
+if ! headers=$(curl --fail --silent --show-error --head --max-time 20 "$public_base_url/"); then
+    echo "HTTPS başlık kontrolü tamamlanamadı." >&2
+    exit 1
+fi
 if ! printf '%s' "$headers" | grep -Eiq '^strict-transport-security:'; then
     echo "Strict-Transport-Security başlığı bulunamadı." >&2
     exit 1
 fi
 echo "PASS HSTS başlığı mevcut"
 
-swagger_status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
-    --max-time 20 "$public_base_url/api/swagger-ui.html")
+if ! swagger_status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+    --max-time 20 "$public_base_url/api/swagger-ui.html"); then
+    echo "Swagger kapalılık kontrolü alan adına bağlanamadı." >&2
+    exit 1
+fi
 if [ "$swagger_status" != "404" ]; then
     echo "Production Swagger endpointi 404 dönmeli; $swagger_status alındı." >&2
     exit 1
 fi
 echo "PASS Swagger dış erişime kapalı"
 
-protected_status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
-    --max-time 20 "$public_base_url/api/v1/subscriptions")
+if ! protected_status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+    --max-time 20 "$public_base_url/api/v1/subscriptions"); then
+    echo "Anonim API kontrolü alan adına bağlanamadı." >&2
+    exit 1
+fi
 if [ "$protected_status" != "401" ]; then
     echo "Anonim korumalı API isteği 401 dönmeli; $protected_status alındı." >&2
     exit 1

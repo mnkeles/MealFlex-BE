@@ -3,10 +3,12 @@ package com.mealflex.common.exception;
 import jakarta.validation.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.MethodParameter;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.HttpInputMessage;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.lang.reflect.Method;
 import java.util.Set;
@@ -22,6 +24,14 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode().value()).isEqualTo(404);
         assertThat(response.getBody().getMessage()).isEqualTo("İstenen kayıt bulunamadı.");
         assertThat(response.getBody().getMessage()).doesNotContain("999", "Abonelik");
+    }
+
+    @Test
+    void missingStaticResourceReturnsNotFoundInsteadOfInternalError() {
+        var response = handler.handleNoResourceFound(
+                new NoResourceFoundException(HttpMethod.GET, "swagger-ui.html"));
+        assertThat(response.getStatusCode().value()).isEqualTo(404);
+        assertThat(response.getBody().getCode()).isEqualTo("RESOURCE_NOT_FOUND");
     }
 
     @Test
