@@ -25,7 +25,7 @@ public interface StoreRepository extends JpaRepository<Store, Long> {
         SELECT s FROM Store s
         WHERE s.deletedAt IS NULL
         AND (:status IS NULL OR s.status = :status)
-        AND (:search IS NULL OR LOWER(s.name) LIKE LOWER(CONCAT('%', :search, '%')))
+        AND (:search IS NULL OR LOWER(s.name) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')))
         """)
     Page<Store> searchForAdmin(
             @Param("status") StoreStatus status,

@@ -25,6 +25,18 @@ SELECT s.id, 'Ankara', 'Etimesgut', now(), now()
 FROM stores s WHERE s.name = 'Fatma''nın Mutfağı'
 ON CONFLICT (store_id, city, district) DO NOTHING;
 
+INSERT INTO store_distance_rules (store_id, distance_km, min_person_count, created_at, updated_at)
+SELECT s.id, 10, 5, now(), now()
+FROM stores s WHERE s.name = 'Fatma''nın Mutfağı'
+ON CONFLICT (store_id, distance_km) DO NOTHING;
+
+INSERT INTO store_delivery_slots (store_id, delivery_time, created_at, updated_at)
+SELECT s.id, slot.delivery_time, now(), now()
+FROM stores s
+CROSS JOIN (VALUES (time '12:00'), (time '12:30'), (time '13:00')) AS slot(delivery_time)
+WHERE s.name = 'Fatma''nın Mutfağı'
+ON CONFLICT (store_id, delivery_time) DO NOTHING;
+
 INSERT INTO business_hours (store_id, day_of_week, open, open_time, close_time, created_at, updated_at)
 SELECT s.id, day_name, TRUE, time '09:00', time '18:00', now(), now()
 FROM stores s CROSS JOIN (VALUES ('MONDAY'), ('TUESDAY'), ('WEDNESDAY'), ('THURSDAY'), ('FRIDAY'), ('SATURDAY'), ('SUNDAY')) days(day_name)

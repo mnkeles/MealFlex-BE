@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [switch]$AllowMockPayment
+    [switch]$AllowMockPayment,
+    [switch]$AllowMockPayout
 )
 
 $ErrorActionPreference = 'Stop'
@@ -92,6 +93,18 @@ if ($taskPaymentProvider -eq 'MOCK') {
     }
 }
 
+$taskPayoutProvider = Get-RequiredEnvironmentValue -Name 'PAYOUT_PROVIDER'
+$taskPayoutProvider = $taskPayoutProvider.ToUpperInvariant()
+if ($taskPayoutProvider -eq 'MOCK') {
+    if (-not $AllowMockPayout) {
+        $taskErrors.Add('PAYOUT_PROVIDER must not be MOCK for production. A real bank/payout adapter is required. Use -AllowMockPayout only in a non-production rehearsal.')
+    } else {
+        Write-Output 'PASS MOCK payout is explicitly allowed for this rehearsal'
+    }
+} elseif ($taskPayoutProvider) {
+    $taskErrors.Add("PAYOUT_PROVIDER '$taskPayoutProvider' has no implemented adapter. Configure a supported real payout adapter before production.")
+}
+
 $taskNotificationsEnabled = [Environment]::GetEnvironmentVariable('NOTIFICATION_EXTERNAL_ENABLED')
 if ([string]::IsNullOrWhiteSpace($taskNotificationsEnabled)) {
     $taskNotificationsEnabled = 'false'
@@ -99,11 +112,11 @@ if ([string]::IsNullOrWhiteSpace($taskNotificationsEnabled)) {
 if ($taskNotificationsEnabled -notin @('true', 'false')) {
     $taskErrors.Add('NOTIFICATION_EXTERNAL_ENABLED must be true or false.')
 } elseif ($taskNotificationsEnabled -eq 'true') {
-    foreach ($taskName in @(
-            'NOTIFICATION_EMAIL_ENDPOINT', 'NOTIFICATION_EMAIL_API_KEY',
-            'NOTIFICATION_SMS_ENDPOINT', 'NOTIFICATION_SMS_API_KEY',
-            'NOTIFICATION_PUSH_ENDPOINT', 'NOTIFICATION_PUSH_API_KEY')) {
-        Get-RequiredEnvironmentValue -Name $taskName | Out-Null
+    foreach ($taskChannel in @('EMAIL', 'SMS', 'PUSH')) {
+        $taskEndpointName = "NOTIFICATION_${taskChannel}_ENDPOINT"
+        $taskEndpoint = Get-RequiredEnvironmentValue -Name $taskEndpointName
+        if ($taskEndpoint) { Test-ExternalUrl -Name $taskEndpointName -Value $taskEndpoint }
+        Get-RequiredEnvironmentValue -Name "NOTIFICATION_${taskChannel}_API_KEY" | Out-Null
     }
 } else {
     Write-Output 'PASS External notifications are explicitly disabled'

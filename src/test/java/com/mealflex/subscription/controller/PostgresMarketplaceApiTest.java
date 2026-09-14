@@ -142,11 +142,11 @@ class PostgresMarketplaceApiTest {
                     .andExpect(status().isOk());
         }
 
-        mockMvc.perform(post("/v1/seller/deliveries/{id}/in-transit", deliveryId)
+        mockMvc.perform(post("/v1/seller/stores/{storeId}/deliveries/{id}/in-transit", scenario.storeId(), deliveryId)
                         .with(as(seller)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("IN_TRANSIT"));
-        mockMvc.perform(post("/v1/seller/deliveries/{id}/deliver", deliveryId)
+        mockMvc.perform(post("/v1/seller/stores/{storeId}/deliveries/{id}/deliver", scenario.storeId(), deliveryId)
                         .with(as(seller))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.createObjectNode().put("deliveryCode", deliveryCode).toString()))

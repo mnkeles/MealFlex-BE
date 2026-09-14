@@ -26,10 +26,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
         SELECT u FROM User u
         WHERE (:role IS NULL OR u.role = :role)
         AND (:search IS NULL
-             OR LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%'))
-             OR LOWER(u.firstName) LIKE LOWER(CONCAT('%', :search, '%'))
-             OR LOWER(u.lastName) LIKE LOWER(CONCAT('%', :search, '%'))
-             OR LOWER(COALESCE(u.phone, '')) LIKE LOWER(CONCAT('%', :search, '%')))
+             OR LOWER(u.email) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))
+             OR LOWER(u.firstName) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))
+             OR LOWER(u.lastName) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))
+             OR LOWER(COALESCE(u.phone, '')) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')))
         """)
     Page<User> searchForAdmin(
             @Param("role") Role role,

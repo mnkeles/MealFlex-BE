@@ -64,7 +64,11 @@ Betik PostgreSQL bağlantı türünü, HTTPS originlerini, minimum secret uzunlu
 iyzico anahtar/callback ayarlarını ve PostGIS moduyla Flyway konumunun uyumunu
 denetler. Yerel veya staging provasında MOCK adaptera açıkça izin vermek için:
 
-    ./scripts/Test-ProductionEnvironment.ps1 -AllowMockPayment
+    ./scripts/Test-ProductionEnvironment.ps1 -AllowMockPayment -AllowMockPayout
+
+MOCK hakediş adaptörü gerçek banka transferi yapmadan kaydı başarılı kabul eder ve
+yalnız test/prova içindir. Production ön kontrolü, gerçek bir banka/hakediş adaptörü
+uygulanana ve `PAYOUT_PROVIDER` bu adaptöre ayarlanana kadar canlı onayı vermez.
 
 Canlı ödeme için `PAYMENT_PROVIDER=IYZICO` kullanılır. İlk haftalık ödeme iyzico'nun
 barındırdığı Checkout Form üzerinde alınır; kart numarası ve CVV MealFlex'e gelmez.
