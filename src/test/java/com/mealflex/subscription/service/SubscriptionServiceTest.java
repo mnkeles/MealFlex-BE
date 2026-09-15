@@ -46,6 +46,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -323,6 +324,48 @@ class SubscriptionServiceTest {
         assertThat(response.getId()).isEqualTo(50L);
         verify(subscriptionRepository, never()).save(any());
         verify(notificationEventService, never()).publish(any(com.mealflex.notification.entity.Notification.class));
+    }
+
+    @Test
+    void iyzicoSubscriptionRequestRequiresARegisteredCardBeforeSellerApproval() {
+        ReflectionTestUtils.setField(service, "paymentProviderName", "IYZICO");
+        stubPreparation();
+        var request = validRequest();
+        request.setPaymentMethodId(null);
+        request.setRecurringPaymentConsent(true);
+        when(userRepository.findByIdForSubscriptionRequest(10L)).thenReturn(Optional.of(customer));
+        when(subscriptionRepository.findByCustomerIdAndIdempotencyKey(10L, "iyzico-without-card"))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.createSubscription(10L, request, "iyzico-without-card"))
+                .isInstanceOfSatisfying(BusinessException.class, exception -> {
+                    assertThat(exception.getCode()).isEqualTo("PAYMENT_METHOD_REQUIRED");
+                    assertThat(exception.getMessage()).contains("kayıtlı bir kart");
+                });
+
+        verify(paymentService, never()).requireOwnedMethod(any(), any());
+        verify(subscriptionRepository, never()).save(any());
+    }
+
+    @Test
+    void iyzicoSubscriptionRequestRejectsACardFromAnotherProvider() {
+        ReflectionTestUtils.setField(service, "paymentProviderName", "IYZICO");
+        stubPreparation();
+        var request = validRequest();
+        request.setRecurringPaymentConsent(true);
+        when(userRepository.findByIdForSubscriptionRequest(10L)).thenReturn(Optional.of(customer));
+        when(subscriptionRepository.findByCustomerIdAndIdempotencyKey(10L, "iyzico-with-mock-card"))
+                .thenReturn(Optional.empty());
+        when(paymentService.requireOwnedMethod(10L, 90L)).thenReturn(PaymentMethod.builder()
+                .customer(customer).provider("MOCK").providerToken("mock-token")
+                .brand("Test").lastFour("0000").expiryMonth(12).expiryYear(2030).build());
+
+        assertThatThrownBy(() -> service.createSubscription(10L, request, "iyzico-with-mock-card"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode())
+                                .isEqualTo("PAYMENT_METHOD_PROVIDER_MISMATCH"));
+
+        verify(subscriptionRepository, never()).save(any());
     }
 
     @Test

@@ -67,6 +67,27 @@ class PaymentServiceTest {
     }
 
     @Test
+    void registeredCardListOnlyContainsCardsFromTheActiveProvider() {
+        User customer = User.builder().email("customer@example.com").password("x").build();
+        customer.setId(1L);
+        PaymentMethod iyzico = PaymentMethod.builder().customer(customer).provider("IYZICO")
+                .providerToken("iyzico-token").brand("Visa").lastFour("4242")
+                .expiryMonth(12).expiryYear(2030).active(true).build();
+        iyzico.setId(10L);
+        PaymentMethod mock = PaymentMethod.builder().customer(customer).provider("MOCK")
+                .providerToken("mock-token").brand("Test").lastFour("0000")
+                .expiryMonth(12).expiryYear(2030).active(true).build();
+        mock.setId(11L);
+        when(provider.name()).thenReturn("IYZICO");
+        when(methodRepository.findByCustomerIdAndActiveTrueOrderByDefaultMethodDescCreatedAtDesc(1L))
+                .thenReturn(List.of(iyzico, mock));
+
+        assertThat(service.listMethods(1L))
+                .extracting(com.mealflex.payment.dto.PaymentMethodResponse::id)
+                .containsExactly(10L);
+    }
+
+    @Test
     void weeklyChargeDoesNotChargeAlreadyPaidExtraPortionsAgain() {
         Subscription subscription = paymentFixture(PaymentStatus.PENDING).getSubscription();
         subscription.setPricePerPerson(new BigDecimal("10.00"));

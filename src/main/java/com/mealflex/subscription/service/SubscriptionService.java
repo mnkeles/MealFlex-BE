@@ -92,8 +92,9 @@ public class SubscriptionService {
             return toResponse(existing.get());
         }
         PreparedSubscription prepared = preparationService.prepare(userId, request);
-        if (request.getPaymentMethodId() == null && !"IYZICO".equalsIgnoreCase(paymentProviderName)) {
-            throw new BusinessException("PAYMENT_METHOD_REQUIRED", "Abonelik talebi için bir ödeme yöntemi seçmelisiniz.");
+        if (request.getPaymentMethodId() == null) {
+            throw new BusinessException("PAYMENT_METHOD_REQUIRED",
+                    "Abonelik talebi oluşturmadan önce kayıtlı bir kart seçmelisiniz.");
         }
         if (!request.isCommercialTermsAccepted()) {
             throw new BusinessException("COMMERCIAL_TERMS_REQUIRED", "Mesafeli satış ve abonelik koşullarını onaylamalısınız.");
@@ -102,8 +103,12 @@ public class SubscriptionService {
             throw new BusinessException("RECURRING_PAYMENT_CONSENT_REQUIRED",
                     "Haftalık tahsilatlar için kartın iyzico'da saklanmasına onay vermelisiniz.");
         }
-        var paymentMethod = request.getPaymentMethodId() == null
-                ? null : paymentService.requireOwnedMethod(userId, request.getPaymentMethodId());
+        var paymentMethod = paymentService.requireOwnedMethod(userId, request.getPaymentMethodId());
+        if (paymentProviderName != null && !paymentProviderName.isBlank()
+                && !paymentProviderName.equalsIgnoreCase(paymentMethod.getProvider())) {
+            throw new BusinessException("PAYMENT_METHOD_PROVIDER_MISMATCH",
+                    "Seçilen kart aktif ödeme sağlayıcısına ait değil. Lütfen kayıtlı kartlarınızı yenileyin.");
+        }
 
         var menuVersion = menuVersionService.forSubscription(prepared.menu(), request.getStartDate(), userId);
         BigDecimal snapshotTotal = menuVersion.getPricePerPerson().multiply(BigDecimal.valueOf(request.getPersonCount()))

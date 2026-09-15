@@ -77,7 +77,10 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public List<PaymentMethodResponse> listMethods(Long userId) {
-        return methodRepository.findByCustomerIdAndActiveTrueOrderByDefaultMethodDescCreatedAtDesc(userId).stream().map(this::toMethod).toList();
+        return methodRepository.findByCustomerIdAndActiveTrueOrderByDefaultMethodDescCreatedAtDesc(userId).stream()
+                .filter(method -> provider.name().equalsIgnoreCase(method.getProvider()))
+                .map(this::toMethod)
+                .toList();
     }
 
     @Transactional
