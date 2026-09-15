@@ -35,6 +35,9 @@ logging:
 app:
   frontend:
     base-url: ${FRONTEND_BASE_URL}
+  support:
+    recipient-email: ${SUPPORT_RECIPIENT_EMAIL:}
+    dispatch-delay-ms: ${SUPPORT_DISPATCH_DELAY_MS:60000}
   notifications:
     external-enabled: ${NOTIFICATION_EXTERNAL_ENABLED:false}
     email:

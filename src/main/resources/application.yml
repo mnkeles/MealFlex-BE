@@ -58,6 +58,9 @@ app:
     shadow-tolerance-meters: ${LOCATION_SHADOW_TOLERANCE_METERS:100}
   frontend:
     base-url: ${FRONTEND_BASE_URL:http://localhost:5173}
+  support:
+    recipient-email: ${SUPPORT_RECIPIENT_EMAIL:}
+    dispatch-delay-ms: ${SUPPORT_DISPATCH_DELAY_MS:60000}
   notifications:
     external-enabled: ${NOTIFICATION_EXTERNAL_ENABLED:false}
     dispatch-delay-ms: ${NOTIFICATION_DISPATCH_DELAY_MS:30000}
