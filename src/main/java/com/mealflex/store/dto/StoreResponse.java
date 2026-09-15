@@ -22,7 +22,7 @@ public class StoreResponse {
     private Integer minPersonCount;
     private Integer maxPersonCount;
     private Integer dailyCapacity;
-    private Integer changeCutoffHours;
+    private LocalTime changeCutoffTime;
     private String productionAddress;
     private String addressTitle;
     private String city;

@@ -39,7 +39,6 @@ public class DeliveryModificationService {
     private final SellerStoreAccessService storeAccessService;
     private final SubscriptionEventStream eventStream;
     private final StoreCapacityService storeCapacityService;
-    private final com.mealflex.platform.service.PlatformSettingService platformSettingService;
     private final com.mealflex.subscription.repository.SubscriptionAdjustmentRepository adjustmentRepository;
     private final com.mealflex.payment.service.SellerPayoutService sellerPayoutService;
 
@@ -147,7 +146,6 @@ public class DeliveryModificationService {
             throw new BusinessException("DELIVERY_CHANGE_ALREADY_DECIDED", "Bu değişiklik talebi daha önce karara bağlanmış.");
         }
         SubscriptionDelivery delivery = history.getDelivery();
-        validateApprovalWindow(subscription, delivery);
         if (history.getRequestType() == DeliveryModificationRequestType.CANCEL) {
             return approveCancellationRequest(sellerUserId, history, subscription, delivery);
         }
@@ -260,8 +258,7 @@ public class DeliveryModificationService {
         Subscription s = d.getSubscription();
         if (!s.getId().equals(subscriptionId) || !s.getCustomer().getId().equals(userId)) throw new BusinessException("UNAUTHORIZED_ACCESS", "Bu teslimat size ait değil.", HttpStatus.FORBIDDEN);
         if (!List.of(SubscriptionStatus.APPROVED, SubscriptionStatus.ACTIVE).contains(s.getStatus()) || d.getStatus()!=DeliveryStatus.SCHEDULED) throw new BusinessException("INVALID_DELIVERY_STATUS", "Yalnız gelecek planlanmış teslimatlar değiştirilebilir.");
-        int cutoff=Optional.ofNullable(s.getStore().getChangeCutoffHours()).orElseGet(this::defaultChangeCutoffHours); ZonedDateTime deadline=ZonedDateTime.of(d.getDeliveryDate(),d.getDeliveryTime(),ZoneId.of("Europe/Istanbul")).minusHours(cutoff);
-        if(!ZonedDateTime.now(ZoneId.of("Europe/Istanbul")).isBefore(deadline)) throw new BusinessException("CHANGE_CUTOFF_PASSED","Teslimat değişiklik süresi doldu.");
+        DeliveryChangeCutoffPolicy.requireChangeWindowOpen(s.getStore(), d.getDeliveryDate());
         if (r.menuId() != null) throw new BusinessException("DELIVERY_CHANGE_FIELD_NOT_ALLOWED", "Teslimat değişikliği talebinde menü güncellenemez.");
         if (r.addressId() != null && !r.addressId().equals(d.getAddress().getId())) throw new BusinessException("DELIVERY_ADDRESS_CHANGE_NOT_ALLOWED", "Teslimat değişikliği talebinde adres değiştirilemez.");
         Address address = d.getAddress(); Menu menu = d.getMenu();
@@ -288,15 +285,8 @@ public class DeliveryModificationService {
                 || delivery.getStatus() != DeliveryStatus.SCHEDULED) {
             throw new BusinessException("INVALID_DELIVERY_STATUS", "Teslimat artık değiştirilemez.");
         }
-        int cutoff = Optional.ofNullable(subscription.getStore().getChangeCutoffHours()).orElseGet(this::defaultChangeCutoffHours);
-        ZonedDateTime deadline = ZonedDateTime.of(delivery.getDeliveryDate(), delivery.getDeliveryTime(), ZoneId.of("Europe/Istanbul"))
-                .minusHours(cutoff);
-        if (!ZonedDateTime.now(ZoneId.of("Europe/Istanbul")).isBefore(deadline)) {
-            throw new BusinessException("CHANGE_CUTOFF_PASSED", "Teslimat değişiklik süresi doldu.");
-        }
+        DeliveryChangeCutoffPolicy.requireChangeWindowOpen(subscription.getStore(), delivery.getDeliveryDate());
     }
-
-    private int defaultChangeCutoffHours() { return platformSettingService.getInt(com.mealflex.platform.service.PlatformSettingService.DEFAULT_DELIVERY_CHANGE_CUTOFF_HOURS, 24); }
 
     private DeliveryModificationRequestResponse toRequestResponse(DeliveryModificationHistory history) {
         User customer = history.getCustomer();

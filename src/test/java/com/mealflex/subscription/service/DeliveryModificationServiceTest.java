@@ -50,7 +50,6 @@ class DeliveryModificationServiceTest {
     @Mock SellerStoreAccessService storeAccessService;
     @Mock SubscriptionEventStream eventStream;
     @Mock StoreCapacityService storeCapacityService;
-    @Mock com.mealflex.platform.service.PlatformSettingService platformSettingService;
     @Mock SubscriptionAdjustmentRepository adjustmentRepository;
     @Mock com.mealflex.payment.service.SellerPayoutService sellerPayoutService;
     @InjectMocks DeliveryModificationService service;
@@ -60,7 +59,7 @@ class DeliveryModificationServiceTest {
         customer=User.builder().email("customer@test.local").password("x").firstName("Ayşe").lastName("Yılmaz").build(); customer.setId(1L);
         User sellerUser=User.builder().email("seller@test.local").password("x").firstName("Fatma").lastName("Kaya").build(); sellerUser.setId(9L);
         SellerProfile seller=SellerProfile.builder().user(sellerUser).companyTitle("Test İşletmesi").build();
-        store=Store.builder().name("Test Mutfağı").seller(seller).changeCutoffHours(24).maxPersonCount(20).build(); store.setId(2L);
+        store=Store.builder().name("Test Mutfağı").seller(seller).changeCutoffTime(LocalTime.of(17, 0)).maxPersonCount(20).build(); store.setId(2L);
         Address address=Address.builder().user(customer).title("Ev").city("Ankara").district("Çankaya").latitude(BigDecimal.ZERO).longitude(BigDecimal.ZERO).build(); address.setId(3L);
         Menu menu=Menu.builder().store(store).name("Ev Menüsü").pricePerPerson(new BigDecimal("50.00")).active(true).build(); menu.setId(4L);
         subscription=Subscription.builder().customer(customer).store(store).menu(menu).address(address).pricePerPerson(new BigDecimal("50.00")).status(SubscriptionStatus.ACTIVE).totalAmount(new BigDecimal("500.00")).build(); subscription.setId(6L);
@@ -110,6 +109,19 @@ class DeliveryModificationServiceTest {
         assertThat(delivery.getDeliveryTime()).isEqualTo(LocalTime.NOON);
         verify(notificationEventService).publish(any(com.mealflex.notification.entity.Notification.class)); verify(auditLogRepository).save(any());
         verify(eventStream).publish(eq(2L),eq("delivery-change-requested"),any());
+    }
+
+    @Test void customerChangeRequestIsRejectedAfterThePreviousDayCutoff() {
+        delivery.setDeliveryDate(LocalDate.now(DeliveryChangeCutoffPolicy.BUSINESS_TIME_ZONE).plusDays(1));
+        store.setChangeCutoffTime(LocalTime.now(DeliveryChangeCutoffPolicy.BUSINESS_TIME_ZONE).minusMinutes(1));
+        when(deliveryRepository.findByIdForChange(7L)).thenReturn(Optional.of(delivery));
+
+        assertThatThrownBy(() -> service.requestChange(1L, 6L, 7L,
+                new ModifyDeliveryRequest(null, LocalTime.of(13, 0), null, null)))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("CHANGE_CUTOFF_PASSED"));
+
+        verify(historyRepository, never()).save(any());
     }
 
     @Test void cancellationCreatesPendingSellerRequestWithoutChangingDelivery() {

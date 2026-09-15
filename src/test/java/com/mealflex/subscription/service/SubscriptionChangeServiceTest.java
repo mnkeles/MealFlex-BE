@@ -32,7 +32,6 @@ class SubscriptionChangeServiceTest {
     @Mock SubscriptionFreezeRepository freezeRepository; @Mock SubscriptionAdjustmentRepository adjustmentRepository;
     @Mock PaymentService paymentService; @Mock NotificationEventService notificationEventService; @Mock AuditLogRepository auditLogRepository;
     @Mock com.mealflex.payment.service.SellerPayoutService sellerPayoutService;
-    @Mock com.mealflex.platform.service.PlatformSettingService platformSettingService;
     @InjectMocks SubscriptionChangeService service;
     private Subscription subscription; private SubscriptionDelivery delivery;
 
@@ -40,7 +39,7 @@ class SubscriptionChangeServiceTest {
         User customer = User.builder().email("c@x.com").password("x").firstName("C").lastName("U").build(); customer.setId(1L);
         User sellerUser = User.builder().email("s@x.com").password("x").firstName("S").lastName("U").build(); sellerUser.setId(2L);
         SellerProfile seller = SellerProfile.builder().user(sellerUser).companyTitle("X").taxNumber("1").taxOffice("A").authorizedPerson("S").build();
-        Store store = Store.builder().seller(seller).name("Mağaza").changeCutoffHours(24).build(); store.setId(3L);
+        Store store = Store.builder().seller(seller).name("Mağaza").changeCutoffTime(LocalTime.of(17, 0)).build(); store.setId(3L);
         Menu menu = Menu.builder().store(store).name("Menü").pricePerPerson(new BigDecimal("50.00")).build();
         Address address = Address.builder().user(customer).title("Ev").latitude(BigDecimal.ZERO).longitude(BigDecimal.ZERO).build();
         subscription = Subscription.builder().customer(customer).store(store).menu(menu).address(address).status(SubscriptionStatus.ACTIVE).pricePerPerson(new BigDecimal("50.00")).serviceDayCount(5).build(); subscription.setId(4L);
@@ -60,7 +59,9 @@ class SubscriptionChangeServiceTest {
     }
 
     @Test void skipIsRejectedAfterStoreCutoff() {
-        subscription.getStore().setChangeCutoffHours(168);
+        delivery.setDeliveryDate(LocalDate.now(DeliveryChangeCutoffPolicy.BUSINESS_TIME_ZONE).plusDays(1));
+        subscription.getStore().setChangeCutoffTime(
+                LocalTime.now(DeliveryChangeCutoffPolicy.BUSINESS_TIME_ZONE).minusMinutes(1));
         assertThatThrownBy(() -> service.skip(1L, 4L, 5L, null)).isInstanceOf(BusinessException.class).hasMessageContaining("süresi doldu");
         verify(paymentService, never()).refundForDeliveryChange(any(), any(), any(), any(), any());
     }

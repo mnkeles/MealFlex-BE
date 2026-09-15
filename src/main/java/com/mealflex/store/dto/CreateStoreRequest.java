@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Set;
 import java.math.BigDecimal;
@@ -28,9 +29,7 @@ public class CreateStoreRequest {
     @Min(value = 1, message = "Günlük kapasite en az 1 kişi olmalıdır.")
     private Integer dailyCapacity;
 
-    @Min(value = 1, message = "Değişiklik son saati en az 1 saat olmalıdır.")
-    @Max(value = 168, message = "Değişiklik son saati 168 saati aşamaz.")
-    private Integer changeCutoffHours;
+    private LocalTime changeCutoffTime;
 
     private String productionAddress;
 

@@ -167,7 +167,7 @@ public class StoreService {
                 .minPersonCount(sortedRules.get(0).getMinPersonCount())
                 .maxPersonCount(request.getMaxPersonCount())
                 .dailyCapacity(request.getDailyCapacity())
-                .changeCutoffHours(request.getChangeCutoffHours() == null ? 24 : request.getChangeCutoffHours())
+                .changeCutoffTime(request.getChangeCutoffTime() == null ? LocalTime.of(17, 0) : request.getChangeCutoffTime())
                 .categories(validateLabels(request.getCategories(), STORE_CATEGORIES, "İşletme kategorisi"))
                 .productionAddress(request.getProductionAddress())
                 .addressTitle(request.getAddressTitle())
@@ -199,7 +199,7 @@ public class StoreService {
         store.setDescription(request.getDescription());
         store.setMaxPersonCount(request.getMaxPersonCount());
         store.setDailyCapacity(request.getDailyCapacity());
-        if (request.getChangeCutoffHours() != null) store.setChangeCutoffHours(request.getChangeCutoffHours());
+        if (request.getChangeCutoffTime() != null) store.setChangeCutoffTime(request.getChangeCutoffTime());
         applyAddress(store, request);
         store.setLogoUrl(request.getLogoUrl());
         store.setCoverImageUrl(request.getCoverImageUrl());
@@ -604,7 +604,7 @@ public class StoreService {
                 .minPersonCount(store.getMinPersonCount())
                 .maxPersonCount(store.getMaxPersonCount())
                 .dailyCapacity(store.getDailyCapacity())
-                .changeCutoffHours(store.getChangeCutoffHours())
+                .changeCutoffTime(store.getChangeCutoffTime())
                 .productionAddress(store.getProductionAddress())
                 .addressTitle(store.getAddressTitle())
                 .city(store.getCity())
@@ -641,7 +641,7 @@ public class StoreService {
                 .effectiveMinPersonCount(eligibility.minimumPersonCount())
                 .maxPersonCount(store.getMaxPersonCount())
                 .dailyCapacity(store.getDailyCapacity())
-                .changeCutoffHours(store.getChangeCutoffHours())
+                .changeCutoffTime(store.getChangeCutoffTime())
                 .productionAddress(store.getProductionAddress())
                 .addressTitle(store.getAddressTitle())
                 .city(store.getCity())

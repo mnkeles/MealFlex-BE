@@ -6,6 +6,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.time.LocalTime;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -98,7 +99,7 @@ public class Store extends BaseEntity {
 
     @Column(nullable = false)
     @Builder.Default
-    private Integer changeCutoffHours = 24;
+    private LocalTime changeCutoffTime = LocalTime.of(17, 0);
 
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "store_category_labels", joinColumns = @JoinColumn(name = "store_id"))

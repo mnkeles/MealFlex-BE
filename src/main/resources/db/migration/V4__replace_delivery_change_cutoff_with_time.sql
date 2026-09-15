@@ -1,0 +1,2 @@
+ALTER TABLE stores
+    ADD COLUMN change_cutoff_time TIME NOT NULL DEFAULT TIME '17:00';

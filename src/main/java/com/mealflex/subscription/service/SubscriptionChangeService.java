@@ -26,7 +26,6 @@ public class SubscriptionChangeService {
     private final SubscriptionFreezeRepository freezeRepository; private final SubscriptionAdjustmentRepository adjustmentRepository;
     private final PaymentService paymentService; private final NotificationEventService notificationEventService; private final AuditLogRepository auditLogRepository;
     private final com.mealflex.payment.service.SellerPayoutService sellerPayoutService;
-    private final com.mealflex.platform.service.PlatformSettingService platformSettingService;
 
     @Transactional
     public DeliveryChangeResponse skip(Long userId, Long subscriptionId, Long deliveryId, String reason) {
@@ -83,10 +82,7 @@ public class SubscriptionChangeService {
     }
     private void requireChangeable(Subscription subscription, SubscriptionDelivery delivery) {
         if (!List.of(SubscriptionStatus.APPROVED, SubscriptionStatus.ACTIVE).contains(subscription.getStatus()) || delivery.getStatus() != DeliveryStatus.SCHEDULED) throw new BusinessException("INVALID_DELIVERY_STATUS", "Yalnız planlanmış teslimatlar değiştirilebilir.");
-        int cutoff = Optional.ofNullable(subscription.getStore().getChangeCutoffHours()).orElseGet(() ->
-                platformSettingService.getInt(com.mealflex.platform.service.PlatformSettingService.DEFAULT_DELIVERY_CHANGE_CUTOFF_HOURS, 24));
-        ZonedDateTime deadline = ZonedDateTime.of(delivery.getDeliveryDate(), delivery.getDeliveryTime(), ZoneId.of("Europe/Istanbul")).minusHours(cutoff);
-        if (!ZonedDateTime.now(ZoneId.of("Europe/Istanbul")).isBefore(deadline)) throw new BusinessException("CHANGE_CUTOFF_PASSED", "Bu teslimat için değişiklik süresi doldu. Son değişiklik süresi teslimattan " + cutoff + " saat öncedir.");
+        DeliveryChangeCutoffPolicy.requireChangeWindowOpen(subscription.getStore(), delivery.getDeliveryDate());
     }
     private BigDecimal dailyAmount(Subscription subscription, SubscriptionDelivery delivery) { return paymentService.deliveryAdjustmentValue(subscription, delivery); }
     private void markSkipped(SubscriptionDelivery delivery, Long userId, String reason) { delivery.setStatus(DeliveryStatus.SKIPPED); delivery.setChangeReason(reason); delivery.setChangedAt(Instant.now()); delivery.setChangedByUserId(userId); deliveryRepository.save(delivery); }
