@@ -1,13 +1,11 @@
 package com.mealflex.support.repository;
 
 import com.mealflex.support.entity.SupportRequest;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import java.time.Instant;
-import java.util.List;
-
 public interface SupportRequestRepository extends JpaRepository<SupportRequest, Long> {
-    List<SupportRequest> findTop50ByEmailStatusInAndNextEmailAttemptAtLessThanEqualOrderByCreatedAtAsc(
-            List<String> statuses, Instant dueAt);
+    Page<SupportRequest> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
+    Page<SupportRequest> findByStatusOrderByCreatedAtDesc(String status, Pageable pageable);
 }
-

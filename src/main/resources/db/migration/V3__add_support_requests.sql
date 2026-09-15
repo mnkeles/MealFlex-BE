@@ -8,17 +8,15 @@ CREATE TABLE public.support_requests (
     category character varying(30) NOT NULL,
     subject character varying(150) NOT NULL,
     message text NOT NULL,
-    email_status character varying(20) NOT NULL DEFAULT 'PENDING',
-    email_attempts integer NOT NULL DEFAULT 0,
-    next_email_attempt_at timestamp with time zone,
-    email_sent_at timestamp with time zone,
-    last_email_error character varying(500),
+    status character varying(20) NOT NULL DEFAULT 'NEW',
+    admin_response text,
+    responded_at timestamp with time zone,
+    responded_by_user_id bigint REFERENCES public.users(id),
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
     version bigint,
     deleted_at timestamp with time zone
 );
 
-CREATE INDEX idx_support_requests_email_delivery
-    ON public.support_requests (email_status, next_email_attempt_at, created_at);
-
+CREATE INDEX idx_support_requests_status_created
+    ON public.support_requests (status, created_at DESC);

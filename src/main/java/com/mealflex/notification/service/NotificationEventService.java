@@ -49,6 +49,13 @@ public class NotificationEventService {
                 notification.getMessage(), notification.getReferenceType(), notification.getReferenceId());
     }
 
+    @Transactional
+    public void publishInApp(User user, String type, String title, String body, String referenceType, Long referenceId) {
+        notifications.save(Notification.builder().user(user).title(title).message(body)
+                .referenceType(referenceType).referenceId(referenceId).build());
+        saveEvent(user, type, title, body, referenceType, referenceId, Set.of(IN_APP), Set.of(IN_APP));
+    }
+
     /** Sends security codes without creating an in-app notification containing the secret. */
     @Transactional
     public void publishExternal(User user, String type, String title, String body, String channel) {

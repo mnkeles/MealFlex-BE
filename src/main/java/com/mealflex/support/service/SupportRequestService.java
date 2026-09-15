@@ -1,26 +1,28 @@
 package com.mealflex.support.service;
 
+import com.mealflex.common.exception.BusinessException;
 import com.mealflex.common.exception.ResourceNotFoundException;
+import com.mealflex.notification.service.NotificationEventService;
 import com.mealflex.support.dto.CreateSupportRequest;
 import com.mealflex.support.dto.SupportRequestResponse;
+import com.mealflex.support.dto.UpdateSupportRequest;
 import com.mealflex.support.entity.SupportRequest;
 import com.mealflex.support.repository.SupportRequestRepository;
 import com.mealflex.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class SupportRequestService {
     private final SupportRequestRepository requests;
     private final UserRepository users;
-    private final SupportEmailSender emailSender;
+    private final NotificationEventService notifications;
 
     @Transactional
     public SupportRequestResponse create(Long userId, CreateSupportRequest input) {
@@ -35,48 +37,47 @@ public class SupportRequestService {
                 .category(input.category())
                 .subject(input.subject().trim())
                 .message(input.message().trim())
-                .emailStatus("PENDING")
-                .nextEmailAttemptAt(Instant.now())
+                .status("NEW")
                 .build());
-        deliver(request);
-        request = requests.save(request);
-        return new SupportRequestResponse(request.getId(), request.getEmailStatus(), request.getCreatedAt());
+        return SupportRequestResponse.from(request);
     }
 
-    @Scheduled(fixedDelayString = "${app.support.dispatch-delay-ms:60000}")
+    @Transactional(readOnly = true)
+    public Page<SupportRequestResponse> listMine(Long userId, Pageable pageable) {
+        return requests.findByUserIdOrderByCreatedAtDesc(userId, pageable).map(SupportRequestResponse::from);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<SupportRequestResponse> listForAdmin(String status, Pageable pageable) {
+        Page<SupportRequest> result = status == null || status.isBlank()
+                ? requests.findAll(pageable)
+                : requests.findByStatusOrderByCreatedAtDesc(status.trim().toUpperCase(), pageable);
+        return result.map(SupportRequestResponse::from);
+    }
+
     @Transactional
-    public void retryPending() {
-        requests.findTop50ByEmailStatusInAndNextEmailAttemptAtLessThanEqualOrderByCreatedAtAsc(
-                List.of("PENDING", "RETRY"), Instant.now()).forEach(request -> {
-                    deliver(request);
-                    requests.save(request);
-                });
-    }
-
-    private void deliver(SupportRequest request) {
-        try {
-            emailSender.send(request);
-            request.setEmailStatus("SENT");
-            request.setEmailSentAt(Instant.now());
-            request.setNextEmailAttemptAt(null);
-            request.setLastEmailError(null);
-        } catch (RuntimeException exception) {
-            int attempts = request.getEmailAttempts() + 1;
-            request.setEmailAttempts(attempts);
-            request.setEmailStatus(attempts >= 5 ? "FAILED" : "RETRY");
-            request.setNextEmailAttemptAt(attempts >= 5 ? null
-                    : Instant.now().plus(Duration.ofMinutes(Math.min(60, 1L << (attempts - 1)))));
-            request.setLastEmailError(safeError(exception));
+    public SupportRequestResponse updateByAdmin(Long adminId, Long requestId, UpdateSupportRequest input) {
+        SupportRequest request = requests.findById(requestId)
+                .orElseThrow(() -> new ResourceNotFoundException("Destek talebi", requestId));
+        var admin = users.findById(adminId)
+                .orElseThrow(() -> new ResourceNotFoundException("Yönetici", adminId));
+        String response = blankToNull(input.response());
+        if ("ANSWERED".equals(input.status()) && response == null) {
+            throw new BusinessException("SUPPORT_RESPONSE_REQUIRED", "Yanıtlanan taleplerde cevap zorunludur.");
         }
+        boolean responseChanged = response != null && !response.equals(request.getAdminResponse());
+        request.setStatus(input.status());
+        if (responseChanged) {
+            request.setAdminResponse(response);
+            request.setRespondedAt(Instant.now());
+            request.setRespondedBy(admin);
+            notifications.publishInApp(request.getUser(), "SUPPORT_REQUEST",
+                    "Destek talebiniz yanıtlandı", response, "SUPPORT_REQUEST", request.getId());
+        }
+        return SupportRequestResponse.from(requests.save(request));
     }
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
     }
-
-    private static String safeError(RuntimeException exception) {
-        String value = exception.getClass().getSimpleName() + ": " + String.valueOf(exception.getMessage());
-        return value.length() > 500 ? value.substring(0, 500) : value;
-    }
 }
-

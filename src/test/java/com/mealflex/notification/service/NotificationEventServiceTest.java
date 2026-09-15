@@ -27,6 +27,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -114,6 +115,20 @@ class NotificationEventServiceTest {
         verify(events).save(captor.capture());
         assertThat(captor.getValue().getChannels()).isEqualTo("SMS");
         assertThat(captor.getValue().getStatus()).isEqualTo("PENDING");
+    }
+
+    @Test
+    void inAppOnlyMessageNeverUsesExternalPreferencesOrTransport() {
+        service.publishInApp(user, "SUPPORT_REQUEST", "Destek yanıtı", "Talebiniz yanıtlandı",
+                "SUPPORT_REQUEST", 14L);
+
+        verify(notifications).save(any(Notification.class));
+        ArgumentCaptor<NotificationEvent> captor = ArgumentCaptor.forClass(NotificationEvent.class);
+        verify(events).save(captor.capture());
+        assertThat(captor.getValue().getChannels()).isEqualTo("IN_APP");
+        assertThat(captor.getValue().getDeliveredChannels()).isEqualTo("IN_APP");
+        assertThat(captor.getValue().getStatus()).isEqualTo("DELIVERED");
+        verifyNoInteractions(preferences, transport);
     }
 
     private NotificationEvent event(String channels, String deliveredChannels) {

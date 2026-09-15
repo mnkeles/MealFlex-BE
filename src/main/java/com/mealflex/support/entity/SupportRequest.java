@@ -28,15 +28,13 @@ public class SupportRequest extends BaseEntity {
     private String subject;
     @Column(nullable = false, columnDefinition = "TEXT")
     private String message;
-    @Column(name = "email_status", nullable = false, length = 20)
-    @Builder.Default private String emailStatus = "PENDING";
-    @Column(name = "email_attempts", nullable = false)
-    @Builder.Default private int emailAttempts = 0;
-    @Column(name = "next_email_attempt_at")
-    private Instant nextEmailAttemptAt;
-    @Column(name = "email_sent_at")
-    private Instant emailSentAt;
-    @Column(name = "last_email_error", length = 500)
-    private String lastEmailError;
+    @Column(nullable = false, length = 20)
+    @Builder.Default private String status = "NEW";
+    @Column(name = "admin_response", columnDefinition = "TEXT")
+    private String adminResponse;
+    @Column(name = "responded_at")
+    private Instant respondedAt;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "responded_by_user_id")
+    private User respondedBy;
 }
-

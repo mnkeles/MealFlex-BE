@@ -7,6 +7,8 @@ import com.mealflex.support.service.SupportRequestService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,5 +23,10 @@ public class SupportRequestController {
     public SupportRequestResponse create(@AuthenticationPrincipal UserPrincipal principal,
             @Valid @RequestBody CreateSupportRequest request) {
         return service.create(principal.getId(), request);
+    }
+
+    @GetMapping
+    public Page<SupportRequestResponse> mine(@AuthenticationPrincipal UserPrincipal principal, Pageable pageable) {
+        return service.listMine(principal.getId(), pageable);
     }
 }
