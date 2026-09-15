@@ -3,4 +3,4 @@ ALTER TABLE public.delivery_modification_history
 
 ALTER TABLE public.delivery_modification_history
     ADD CONSTRAINT delivery_modification_history_request_type_check
-        CHECK (request_type IN ('CHANGE', 'SKIP'));
+        CHECK (request_type IN ('CHANGE', 'CANCEL'));

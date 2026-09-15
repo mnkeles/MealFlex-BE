@@ -112,7 +112,7 @@ class DeliveryModificationServiceTest {
         verify(eventStream).publish(eq(2L),eq("delivery-change-requested"),any());
     }
 
-    @Test void skipCreatesPendingSellerRequestWithoutChangingDelivery() {
+    @Test void cancellationCreatesPendingSellerRequestWithoutChangingDelivery() {
         when(deliveryRepository.findByIdForChange(7L)).thenReturn(Optional.of(delivery));
         when(historyRepository.existsByDeliveryIdAndRequestStatus(7L, DeliveryModificationRequestStatus.PENDING)).thenReturn(false);
         when(adjustmentRepository.existsByDeliveryId(7L)).thenReturn(false);
@@ -123,9 +123,9 @@ class DeliveryModificationServiceTest {
             return value;
         });
 
-        var response = service.requestSkip(1L, 6L, 7L, "Şehir dışında olacağım");
+        var response = service.requestCancellation(1L, 6L, 7L, "Şehir dışında olacağım");
 
-        assertThat(response.requestType()).isEqualTo(DeliveryModificationRequestType.SKIP);
+        assertThat(response.requestType()).isEqualTo(DeliveryModificationRequestType.CANCEL);
         assertThat(response.status()).isEqualTo(DeliveryModificationRequestStatus.PENDING);
         assertThat(response.priceDifference()).isEqualByComparingTo("-250.00");
         assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.SCHEDULED);
@@ -133,23 +133,23 @@ class DeliveryModificationServiceTest {
         verify(eventStream).publish(eq(2L), eq("delivery-change-requested"), any());
     }
 
-    @Test void sellerApprovalAppliesPendingSkipAndCreatesAdjustment() {
+    @Test void sellerApprovalCancelsPendingMealServiceAndCreatesAdjustment() {
         DeliveryModificationHistory history = pendingHistory(LocalTime.NOON, 5, new BigDecimal("-250.00"));
         history.setId(8L);
-        history.setRequestType(DeliveryModificationRequestType.SKIP);
+        history.setRequestType(DeliveryModificationRequestType.CANCEL);
         history.setCustomerNote("Şehir dışında olacağım");
         when(historyRepository.findById(8L)).thenReturn(Optional.of(history));
         when(adjustmentRepository.existsByDeliveryId(7L)).thenReturn(false);
 
         var response = service.approveRequest(9L, 8L);
 
-        assertThat(response.requestType()).isEqualTo(DeliveryModificationRequestType.SKIP);
+        assertThat(response.requestType()).isEqualTo(DeliveryModificationRequestType.CANCEL);
         assertThat(response.status()).isEqualTo(DeliveryModificationRequestStatus.APPROVED);
-        assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.SKIPPED);
+        assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.CANCELLED);
         verify(paymentService).refundForDeliveryChange(subscription, 7L, new BigDecimal("250.00"), 1L, "Şehir dışında olacağım");
-        verify(adjustmentRepository).save(argThat(adjustment -> "SKIP".equals(adjustment.getAdjustmentType())));
+        verify(adjustmentRepository).save(argThat(adjustment -> "CANCEL_DELIVERY".equals(adjustment.getAdjustmentType())));
         verify(sellerPayoutService).scheduleAfterFinalWeeklyDelivery(delivery);
-        verify(notificationEventService).publish(argThat(notification -> notification.getTitle().equals("Gün atlama talebi onaylandı")));
+        verify(notificationEventService).publish(argThat(notification -> notification.getTitle().equals("Yemek servisi iptal talebi onaylandı")));
     }
 
     @Test void customerNoteOnlyCreatesPendingRequest() {

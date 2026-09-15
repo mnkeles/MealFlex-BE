@@ -81,9 +81,9 @@ public class DeliveryModificationService {
         return toRequestResponse(history);
     }
 
-    /** Müşterinin gün atlama isteğini teslimatı değiştirmeden satıcı onayına gönderir. */
+    /** Müşterinin tek yemek servisi iptal isteğini teslimatı değiştirmeden satıcı onayına gönderir. */
     @Transactional
-    public DeliveryModificationRequestResponse requestSkip(Long userId, Long subscriptionId, Long deliveryId, String reason) {
+    public DeliveryModificationRequestResponse requestCancellation(Long userId, Long subscriptionId, Long deliveryId, String reason) {
         SubscriptionDelivery delivery = deliveryRepository.findByIdForChange(deliveryId)
                 .orElseThrow(() -> new ResourceNotFoundException("Teslimat", deliveryId));
         Subscription subscription = delivery.getSubscription();
@@ -105,17 +105,17 @@ public class DeliveryModificationService {
                 .oldDeliveryTime(delivery.getDeliveryTime()).newDeliveryTime(delivery.getDeliveryTime())
                 .oldPersonCount(delivery.getPersonCount()).newPersonCount(delivery.getPersonCount())
                 .priceDifference(amount.negate()).customerNote(normalizeNote(reason))
-                .requestType(DeliveryModificationRequestType.SKIP)
+                .requestType(DeliveryModificationRequestType.CANCEL)
                 .requestStatus(DeliveryModificationRequestStatus.PENDING).build());
-        auditLogRepository.save(AuditLog.builder().actorId(userId).action("DELIVERY_SKIP_REQUESTED")
+        auditLogRepository.save(AuditLog.builder().actorId(userId).action("DELIVERY_CANCELLATION_REQUESTED")
                 .entityType("DELIVERY").entityId(deliveryId).newValue("amount=" + amount)
                 .timestamp(Instant.now()).build());
         notificationEventService.publish(Notification.builder().user(subscription.getStore().getSeller().getUser())
-                .title("Teslimat günü atlama talebi")
-                .message(delivery.getDeliveryDate() + " tarihli teslimatın atlanması onayınızı bekliyor.")
+                .title("Yemek servisi iptal talebi")
+                .message(delivery.getDeliveryDate() + " tarihli yemek servisinin iptali onayınızı bekliyor.")
                 .referenceType("DELIVERY_CHANGE_REQUEST").referenceId(subscription.getId()).build());
         eventStream.publish(subscription.getStore().getId(), "delivery-change-requested",
-                Map.of("requestId", history.getId(), "deliveryId", deliveryId, "requestType", "SKIP"));
+                Map.of("requestId", history.getId(), "deliveryId", deliveryId, "requestType", "CANCEL"));
         return toRequestResponse(history);
     }
 
@@ -148,8 +148,8 @@ public class DeliveryModificationService {
         }
         SubscriptionDelivery delivery = history.getDelivery();
         validateApprovalWindow(subscription, delivery);
-        if (history.getRequestType() == DeliveryModificationRequestType.SKIP) {
-            return approveSkipRequest(sellerUserId, history, subscription, delivery);
+        if (history.getRequestType() == DeliveryModificationRequestType.CANCEL) {
+            return approveCancellationRequest(sellerUserId, history, subscription, delivery);
         }
         if (history.getNewPersonCount() > history.getOldPersonCount()) {
             storeCapacityService.reserveOrThrow(subscription.getStore().getId(), delivery.getDeliveryDate(),
@@ -208,46 +208,46 @@ public class DeliveryModificationService {
         history.setDecisionReason(normalizedReason);
         history.setDecidedAt(Instant.now()); history.setDecidedByUserId(sellerUserId);
         historyRepository.save(history);
-        boolean skipRequest = history.getRequestType() == DeliveryModificationRequestType.SKIP;
-        auditLogRepository.save(AuditLog.builder().actorId(sellerUserId).action(skipRequest ? "DELIVERY_SKIP_REJECTED" : "DELIVERY_CHANGE_REJECTED").entityType("DELIVERY").entityId(history.getDelivery().getId())
+        boolean cancellationRequest = history.getRequestType() == DeliveryModificationRequestType.CANCEL;
+        auditLogRepository.save(AuditLog.builder().actorId(sellerUserId).action(cancellationRequest ? "DELIVERY_CANCELLATION_REJECTED" : "DELIVERY_CHANGE_REJECTED").entityType("DELIVERY").entityId(history.getDelivery().getId())
                 .newValue("requestId=" + history.getId() + ",reason=" + normalizedReason).timestamp(Instant.now()).build());
         notificationEventService.publish(Notification.builder().user(subscription.getCustomer())
-                .title(skipRequest ? "Gün atlama talebi reddedildi" : "Teslimat değişikliği reddedildi")
-                .message(subscription.getStore().getName() + (skipRequest ? " gün atlama" : " saat veya kişi sayısı değişikliği")
+                .title(cancellationRequest ? "Yemek servisi iptal talebi reddedildi" : "Teslimat değişikliği reddedildi")
+                .message(subscription.getStore().getName() + (cancellationRequest ? " yemek servisi iptal" : " saat veya kişi sayısı değişikliği")
                         + " talebinizi reddetti. Neden: " + normalizedReason)
                 .referenceType("DELIVERY_CHANGE_REQUEST").referenceId(subscription.getId()).build());
         return toRequestResponse(history);
     }
 
-    private DeliveryModificationRequestResponse approveSkipRequest(Long sellerUserId,
+    private DeliveryModificationRequestResponse approveCancellationRequest(Long sellerUserId,
             DeliveryModificationHistory history, Subscription subscription, SubscriptionDelivery delivery) {
         if (adjustmentRepository.existsByDeliveryId(delivery.getId())) {
             throw new BusinessException("DELIVERY_ALREADY_CHANGED", "Bu teslimat için daha önce değişiklik yapılmış.");
         }
         BigDecimal amount = history.getPriceDifference().abs();
-        String reason = history.getCustomerNote() == null ? "Müşterinin gün atlama talebi satıcı tarafından onaylandı" : history.getCustomerNote();
+        String reason = history.getCustomerNote() == null ? "Müşterinin yemek servisi iptal talebi satıcı tarafından onaylandı" : history.getCustomerNote();
         Refund refund = paymentService.refundForDeliveryChange(subscription, delivery.getId(), amount,
                 history.getCustomer().getId(), reason);
-        delivery.setStatus(DeliveryStatus.SKIPPED);
+        delivery.setStatus(DeliveryStatus.CANCELLED);
         delivery.setChangedAt(Instant.now());
         delivery.setChangedByUserId(sellerUserId);
-        delivery.setChangeReason("Satıcı gün atlama talebini onayladı");
+        delivery.setChangeReason("Satıcı yemek servisi iptal talebini onayladı");
         deliveryRepository.save(delivery);
         sellerPayoutService.scheduleAfterFinalWeeklyDelivery(delivery);
         adjustmentRepository.save(SubscriptionAdjustment.builder().subscription(subscription).delivery(delivery)
-                .adjustmentType("SKIP").status(refund == null ? "NOT_CHARGED" : refund.getStatus().name())
+                .adjustmentType("CANCEL_DELIVERY").status(refund == null ? "NOT_CHARGED" : refund.getStatus().name())
                 .amount(amount).currency("TRY").refund(refund).reason(reason).build());
         history.setRefund(refund);
         history.setRequestStatus(DeliveryModificationRequestStatus.APPROVED);
         history.setDecidedAt(Instant.now());
         history.setDecidedByUserId(sellerUserId);
         historyRepository.save(history);
-        auditLogRepository.save(AuditLog.builder().actorId(sellerUserId).action("DELIVERY_SKIP_APPROVED")
+        auditLogRepository.save(AuditLog.builder().actorId(sellerUserId).action("DELIVERY_CANCELLATION_APPROVED")
                 .entityType("DELIVERY").entityId(delivery.getId()).newValue("requestId=" + history.getId() + ",amount=" + amount)
                 .timestamp(Instant.now()).build());
         notificationEventService.publish(Notification.builder().user(subscription.getCustomer())
-                .title("Gün atlama talebi onaylandı")
-                .message(delivery.getDeliveryDate() + " tarihli teslimatınız atlandı; uygun ücret düzeltmesi oluşturuldu.")
+                .title("Yemek servisi iptal talebi onaylandı")
+                .message(delivery.getDeliveryDate() + " tarihli yemek servisiniz iptal edildi; uygun ücret düzeltmesi oluşturuldu.")
                 .referenceType("DELIVERY_CHANGE_REQUEST").referenceId(subscription.getId()).build());
         return toRequestResponse(history);
     }

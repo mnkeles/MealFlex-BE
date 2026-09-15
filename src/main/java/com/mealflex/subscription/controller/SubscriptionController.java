@@ -134,21 +134,30 @@ public class SubscriptionController {
                 subscriptionService.cancelSubscription(principal.getId(), id, reason));
     }
 
+    @PostMapping("/{id}/deliveries/{deliveryId}/cancel")
+    @Operation(summary = "Gelecek yemek servisini iptal etmek için satıcı onayı talep et")
+    public ResponseEntity<DeliveryModificationRequestResponse> cancelDelivery(@AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable Long id, @PathVariable Long deliveryId,
+            @RequestParam(required = false, defaultValue = "Müşteri yemek servisini iptal etmek istiyor") String reason) {
+        return ResponseEntity.ok(deliveryModificationService.requestCancellation(principal.getId(), id, deliveryId, reason));
+    }
+
     @PostMapping("/{id}/deliveries/{deliveryId}/skip")
-    @Operation(summary = "Gelecek teslimat gününü atlamak için satıcı onayı talep et")
+    @Deprecated(forRemoval = true)
+    @Operation(summary = "Yemek servisi iptal talebi için eski uyumluluk endpoint'i")
     public ResponseEntity<DeliveryModificationRequestResponse> skipDelivery(@AuthenticationPrincipal UserPrincipal principal,
             @PathVariable Long id, @PathVariable Long deliveryId,
-            @RequestParam(required = false, defaultValue = "Müşteri tarafından atlandı") String reason) {
-        return ResponseEntity.ok(deliveryModificationService.requestSkip(principal.getId(), id, deliveryId, reason));
+            @RequestParam(required = false, defaultValue = "Müşteri yemek servisini iptal etmek istiyor") String reason) {
+        return ResponseEntity.ok(deliveryModificationService.requestCancellation(principal.getId(), id, deliveryId, reason));
     }
 
     @PostMapping("/{id}/skip-delivery")
     @Deprecated(forRemoval = true)
-    @Operation(summary = "Teslimat ID'siyle gün atlama için uyumluluk endpoint'i")
+    @Operation(summary = "Teslimat ID'siyle yemek servisi iptal talebi için eski uyumluluk endpoint'i")
     public ResponseEntity<DeliveryModificationRequestResponse> skipDeliveryAlias(@AuthenticationPrincipal UserPrincipal principal,
             @PathVariable Long id, @RequestParam Long deliveryId,
-            @RequestParam(required = false, defaultValue = "Müşteri tarafından atlandı") String reason) {
-        return ResponseEntity.ok(deliveryModificationService.requestSkip(principal.getId(), id, deliveryId, reason));
+            @RequestParam(required = false, defaultValue = "Müşteri yemek servisini iptal etmek istiyor") String reason) {
+        return ResponseEntity.ok(deliveryModificationService.requestCancellation(principal.getId(), id, deliveryId, reason));
     }
 
     @PostMapping("/{id}/freeze")

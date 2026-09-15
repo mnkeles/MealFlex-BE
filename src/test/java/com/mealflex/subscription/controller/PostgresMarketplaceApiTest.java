@@ -136,19 +136,19 @@ class PostgresMarketplaceApiTest {
                     scenario.startDate().with(DayOfWeek.MONDAY));
         });
         for (Long skippedDeliveryId : remainingDeliveryIds) {
-            String skipResponse = mockMvc.perform(post("/v1/subscriptions/{id}/deliveries/{deliveryId}/skip",
+            String skipResponse = mockMvc.perform(post("/v1/subscriptions/{id}/deliveries/{deliveryId}/cancel",
                             subscriptionId, skippedDeliveryId)
                             .with(as(customer))
                             .param("reason", "QA uçtan uca akış testi"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.requestType").value("SKIP"))
+                    .andExpect(jsonPath("$.requestType").value("CANCEL"))
                     .andExpect(jsonPath("$.status").value("PENDING"))
                     .andReturn().getResponse().getContentAsString();
             long requestId = objectMapper.readTree(skipResponse).path("id").asLong();
             mockMvc.perform(post("/v1/seller/delivery-change-requests/{requestId}/approve", requestId)
                             .with(as(seller)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.requestType").value("SKIP"))
+                    .andExpect(jsonPath("$.requestType").value("CANCEL"))
                     .andExpect(jsonPath("$.status").value("APPROVED"));
         }
 
