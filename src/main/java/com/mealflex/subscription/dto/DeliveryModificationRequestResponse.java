@@ -1,6 +1,7 @@
 package com.mealflex.subscription.dto;
 
 import com.mealflex.subscription.entity.DeliveryModificationRequestStatus;
+import com.mealflex.subscription.entity.DeliveryModificationRequestType;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -13,6 +14,7 @@ public record DeliveryModificationRequestResponse(
         Long deliveryId,
         String customerName,
         LocalDate deliveryDate,
+        DeliveryModificationRequestType requestType,
         LocalTime oldDeliveryTime,
         LocalTime requestedDeliveryTime,
         Integer oldPersonCount,

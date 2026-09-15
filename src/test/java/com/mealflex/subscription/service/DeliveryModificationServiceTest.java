@@ -51,6 +51,8 @@ class DeliveryModificationServiceTest {
     @Mock SubscriptionEventStream eventStream;
     @Mock StoreCapacityService storeCapacityService;
     @Mock com.mealflex.platform.service.PlatformSettingService platformSettingService;
+    @Mock SubscriptionAdjustmentRepository adjustmentRepository;
+    @Mock com.mealflex.payment.service.SellerPayoutService sellerPayoutService;
     @InjectMocks DeliveryModificationService service;
     private User customer; private Store store; private Subscription subscription; private SubscriptionDelivery delivery;
 
@@ -108,6 +110,46 @@ class DeliveryModificationServiceTest {
         assertThat(delivery.getDeliveryTime()).isEqualTo(LocalTime.NOON);
         verify(notificationEventService).publish(any(com.mealflex.notification.entity.Notification.class)); verify(auditLogRepository).save(any());
         verify(eventStream).publish(eq(2L),eq("delivery-change-requested"),any());
+    }
+
+    @Test void skipCreatesPendingSellerRequestWithoutChangingDelivery() {
+        when(deliveryRepository.findByIdForChange(7L)).thenReturn(Optional.of(delivery));
+        when(historyRepository.existsByDeliveryIdAndRequestStatus(7L, DeliveryModificationRequestStatus.PENDING)).thenReturn(false);
+        when(adjustmentRepository.existsByDeliveryId(7L)).thenReturn(false);
+        when(paymentService.deliveryAdjustmentValue(subscription, delivery)).thenReturn(new BigDecimal("250.00"));
+        when(historyRepository.save(any())).thenAnswer(invocation -> {
+            DeliveryModificationHistory value = invocation.getArgument(0);
+            value.setId(8L);
+            return value;
+        });
+
+        var response = service.requestSkip(1L, 6L, 7L, "Şehir dışında olacağım");
+
+        assertThat(response.requestType()).isEqualTo(DeliveryModificationRequestType.SKIP);
+        assertThat(response.status()).isEqualTo(DeliveryModificationRequestStatus.PENDING);
+        assertThat(response.priceDifference()).isEqualByComparingTo("-250.00");
+        assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.SCHEDULED);
+        verify(paymentService, never()).refundForDeliveryChange(any(), any(), any(), any(), any());
+        verify(eventStream).publish(eq(2L), eq("delivery-change-requested"), any());
+    }
+
+    @Test void sellerApprovalAppliesPendingSkipAndCreatesAdjustment() {
+        DeliveryModificationHistory history = pendingHistory(LocalTime.NOON, 5, new BigDecimal("-250.00"));
+        history.setId(8L);
+        history.setRequestType(DeliveryModificationRequestType.SKIP);
+        history.setCustomerNote("Şehir dışında olacağım");
+        when(historyRepository.findById(8L)).thenReturn(Optional.of(history));
+        when(adjustmentRepository.existsByDeliveryId(7L)).thenReturn(false);
+
+        var response = service.approveRequest(9L, 8L);
+
+        assertThat(response.requestType()).isEqualTo(DeliveryModificationRequestType.SKIP);
+        assertThat(response.status()).isEqualTo(DeliveryModificationRequestStatus.APPROVED);
+        assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.SKIPPED);
+        verify(paymentService).refundForDeliveryChange(subscription, 7L, new BigDecimal("250.00"), 1L, "Şehir dışında olacağım");
+        verify(adjustmentRepository).save(argThat(adjustment -> "SKIP".equals(adjustment.getAdjustmentType())));
+        verify(sellerPayoutService).scheduleAfterFinalWeeklyDelivery(delivery);
+        verify(notificationEventService).publish(argThat(notification -> notification.getTitle().equals("Gün atlama talebi onaylandı")));
     }
 
     @Test void customerNoteOnlyCreatesPendingRequest() {

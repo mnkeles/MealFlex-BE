@@ -135,20 +135,20 @@ public class SubscriptionController {
     }
 
     @PostMapping("/{id}/deliveries/{deliveryId}/skip")
-    @Operation(summary = "Gelecek teslimat gününü atla")
-    public ResponseEntity<DeliveryChangeResponse> skipDelivery(@AuthenticationPrincipal UserPrincipal principal,
+    @Operation(summary = "Gelecek teslimat gününü atlamak için satıcı onayı talep et")
+    public ResponseEntity<DeliveryModificationRequestResponse> skipDelivery(@AuthenticationPrincipal UserPrincipal principal,
             @PathVariable Long id, @PathVariable Long deliveryId,
             @RequestParam(required = false, defaultValue = "Müşteri tarafından atlandı") String reason) {
-        return ResponseEntity.ok(subscriptionChangeService.skip(principal.getId(), id, deliveryId, reason));
+        return ResponseEntity.ok(deliveryModificationService.requestSkip(principal.getId(), id, deliveryId, reason));
     }
 
     @PostMapping("/{id}/skip-delivery")
     @Deprecated(forRemoval = true)
     @Operation(summary = "Teslimat ID'siyle gün atlama için uyumluluk endpoint'i")
-    public ResponseEntity<DeliveryChangeResponse> skipDeliveryAlias(@AuthenticationPrincipal UserPrincipal principal,
+    public ResponseEntity<DeliveryModificationRequestResponse> skipDeliveryAlias(@AuthenticationPrincipal UserPrincipal principal,
             @PathVariable Long id, @RequestParam Long deliveryId,
             @RequestParam(required = false, defaultValue = "Müşteri tarafından atlandı") String reason) {
-        return ResponseEntity.ok(subscriptionChangeService.skip(principal.getId(), id, deliveryId, reason));
+        return ResponseEntity.ok(deliveryModificationService.requestSkip(principal.getId(), id, deliveryId, reason));
     }
 
     @PostMapping("/{id}/freeze")

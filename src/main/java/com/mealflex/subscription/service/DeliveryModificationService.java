@@ -40,6 +40,8 @@ public class DeliveryModificationService {
     private final SubscriptionEventStream eventStream;
     private final StoreCapacityService storeCapacityService;
     private final com.mealflex.platform.service.PlatformSettingService platformSettingService;
+    private final com.mealflex.subscription.repository.SubscriptionAdjustmentRepository adjustmentRepository;
+    private final com.mealflex.payment.service.SellerPayoutService sellerPayoutService;
 
     @Transactional(readOnly=true)
     public DeliveryModificationResponse preview(Long userId, Long subscriptionId, Long deliveryId, ModifyDeliveryRequest request) {
@@ -66,6 +68,7 @@ public class DeliveryModificationService {
                 .oldDeliveryTime(p.delivery.getDeliveryTime()).newDeliveryTime(p.time)
                 .oldPersonCount(p.delivery.getPersonCount()).newPersonCount(p.personCount)
                 .priceDifference(p.difference).customerNote(customerNote)
+                .requestType(DeliveryModificationRequestType.CHANGE)
                 .requestStatus(DeliveryModificationRequestStatus.PENDING).build());
         auditLogRepository.save(AuditLog.builder().actorId(userId).action("DELIVERY_CHANGE_REQUESTED").entityType("DELIVERY").entityId(deliveryId)
                 .newValue("addressId=" + p.address.getId() + ",time=" + p.time + ",persons=" + p.personCount + ",difference=" + p.difference).timestamp(Instant.now()).build());
@@ -75,6 +78,44 @@ public class DeliveryModificationService {
                 .referenceType("DELIVERY_CHANGE_REQUEST").referenceId(p.subscription.getId()).build());
         eventStream.publish(p.subscription.getStore().getId(), "delivery-change-requested",
                 Map.of("requestId", history.getId(), "deliveryId", deliveryId));
+        return toRequestResponse(history);
+    }
+
+    /** Müşterinin gün atlama isteğini teslimatı değiştirmeden satıcı onayına gönderir. */
+    @Transactional
+    public DeliveryModificationRequestResponse requestSkip(Long userId, Long subscriptionId, Long deliveryId, String reason) {
+        SubscriptionDelivery delivery = deliveryRepository.findByIdForChange(deliveryId)
+                .orElseThrow(() -> new ResourceNotFoundException("Teslimat", deliveryId));
+        Subscription subscription = delivery.getSubscription();
+        if (!subscription.getId().equals(subscriptionId) || !subscription.getCustomer().getId().equals(userId)) {
+            throw new BusinessException("UNAUTHORIZED_ACCESS", "Bu teslimat size ait değil.", HttpStatus.FORBIDDEN);
+        }
+        validateApprovalWindow(subscription, delivery);
+        if (historyRepository.existsByDeliveryIdAndRequestStatus(deliveryId, DeliveryModificationRequestStatus.PENDING)) {
+            throw new BusinessException("DELIVERY_CHANGE_ALREADY_PENDING", "Bu teslimat için satıcı onayı bekleyen bir talep var.");
+        }
+        if (adjustmentRepository.existsByDeliveryId(deliveryId)) {
+            throw new BusinessException("DELIVERY_ALREADY_CHANGED", "Bu teslimat için daha önce değişiklik yapılmış.");
+        }
+        BigDecimal amount = paymentService.deliveryAdjustmentValue(subscription, delivery);
+        DeliveryModificationHistory history = historyRepository.save(DeliveryModificationHistory.builder()
+                .subscription(subscription).delivery(delivery).customer(subscription.getCustomer())
+                .oldAddress(delivery.getAddress()).newAddress(delivery.getAddress())
+                .oldMenu(delivery.getMenu()).newMenu(delivery.getMenu())
+                .oldDeliveryTime(delivery.getDeliveryTime()).newDeliveryTime(delivery.getDeliveryTime())
+                .oldPersonCount(delivery.getPersonCount()).newPersonCount(delivery.getPersonCount())
+                .priceDifference(amount.negate()).customerNote(normalizeNote(reason))
+                .requestType(DeliveryModificationRequestType.SKIP)
+                .requestStatus(DeliveryModificationRequestStatus.PENDING).build());
+        auditLogRepository.save(AuditLog.builder().actorId(userId).action("DELIVERY_SKIP_REQUESTED")
+                .entityType("DELIVERY").entityId(deliveryId).newValue("amount=" + amount)
+                .timestamp(Instant.now()).build());
+        notificationEventService.publish(Notification.builder().user(subscription.getStore().getSeller().getUser())
+                .title("Teslimat günü atlama talebi")
+                .message(delivery.getDeliveryDate() + " tarihli teslimatın atlanması onayınızı bekliyor.")
+                .referenceType("DELIVERY_CHANGE_REQUEST").referenceId(subscription.getId()).build());
+        eventStream.publish(subscription.getStore().getId(), "delivery-change-requested",
+                Map.of("requestId", history.getId(), "deliveryId", deliveryId, "requestType", "SKIP"));
         return toRequestResponse(history);
     }
 
@@ -107,6 +148,9 @@ public class DeliveryModificationService {
         }
         SubscriptionDelivery delivery = history.getDelivery();
         validateApprovalWindow(subscription, delivery);
+        if (history.getRequestType() == DeliveryModificationRequestType.SKIP) {
+            return approveSkipRequest(sellerUserId, history, subscription, delivery);
+        }
         if (history.getNewPersonCount() > history.getOldPersonCount()) {
             storeCapacityService.reserveOrThrow(subscription.getStore().getId(), delivery.getDeliveryDate(),
                     history.getNewPersonCount(), history.getOldPersonCount());
@@ -164,10 +208,46 @@ public class DeliveryModificationService {
         history.setDecisionReason(normalizedReason);
         history.setDecidedAt(Instant.now()); history.setDecidedByUserId(sellerUserId);
         historyRepository.save(history);
-        auditLogRepository.save(AuditLog.builder().actorId(sellerUserId).action("DELIVERY_CHANGE_REJECTED").entityType("DELIVERY").entityId(history.getDelivery().getId())
+        boolean skipRequest = history.getRequestType() == DeliveryModificationRequestType.SKIP;
+        auditLogRepository.save(AuditLog.builder().actorId(sellerUserId).action(skipRequest ? "DELIVERY_SKIP_REJECTED" : "DELIVERY_CHANGE_REJECTED").entityType("DELIVERY").entityId(history.getDelivery().getId())
                 .newValue("requestId=" + history.getId() + ",reason=" + normalizedReason).timestamp(Instant.now()).build());
-        notificationEventService.publish(Notification.builder().user(subscription.getCustomer()).title("Teslimat değişikliği reddedildi")
-                .message(subscription.getStore().getName() + " saat veya kişi sayısı değişikliği talebinizi reddetti. Neden: " + normalizedReason)
+        notificationEventService.publish(Notification.builder().user(subscription.getCustomer())
+                .title(skipRequest ? "Gün atlama talebi reddedildi" : "Teslimat değişikliği reddedildi")
+                .message(subscription.getStore().getName() + (skipRequest ? " gün atlama" : " saat veya kişi sayısı değişikliği")
+                        + " talebinizi reddetti. Neden: " + normalizedReason)
+                .referenceType("DELIVERY_CHANGE_REQUEST").referenceId(subscription.getId()).build());
+        return toRequestResponse(history);
+    }
+
+    private DeliveryModificationRequestResponse approveSkipRequest(Long sellerUserId,
+            DeliveryModificationHistory history, Subscription subscription, SubscriptionDelivery delivery) {
+        if (adjustmentRepository.existsByDeliveryId(delivery.getId())) {
+            throw new BusinessException("DELIVERY_ALREADY_CHANGED", "Bu teslimat için daha önce değişiklik yapılmış.");
+        }
+        BigDecimal amount = history.getPriceDifference().abs();
+        String reason = history.getCustomerNote() == null ? "Müşterinin gün atlama talebi satıcı tarafından onaylandı" : history.getCustomerNote();
+        Refund refund = paymentService.refundForDeliveryChange(subscription, delivery.getId(), amount,
+                history.getCustomer().getId(), reason);
+        delivery.setStatus(DeliveryStatus.SKIPPED);
+        delivery.setChangedAt(Instant.now());
+        delivery.setChangedByUserId(sellerUserId);
+        delivery.setChangeReason("Satıcı gün atlama talebini onayladı");
+        deliveryRepository.save(delivery);
+        sellerPayoutService.scheduleAfterFinalWeeklyDelivery(delivery);
+        adjustmentRepository.save(SubscriptionAdjustment.builder().subscription(subscription).delivery(delivery)
+                .adjustmentType("SKIP").status(refund == null ? "NOT_CHARGED" : refund.getStatus().name())
+                .amount(amount).currency("TRY").refund(refund).reason(reason).build());
+        history.setRefund(refund);
+        history.setRequestStatus(DeliveryModificationRequestStatus.APPROVED);
+        history.setDecidedAt(Instant.now());
+        history.setDecidedByUserId(sellerUserId);
+        historyRepository.save(history);
+        auditLogRepository.save(AuditLog.builder().actorId(sellerUserId).action("DELIVERY_SKIP_APPROVED")
+                .entityType("DELIVERY").entityId(delivery.getId()).newValue("requestId=" + history.getId() + ",amount=" + amount)
+                .timestamp(Instant.now()).build());
+        notificationEventService.publish(Notification.builder().user(subscription.getCustomer())
+                .title("Gün atlama talebi onaylandı")
+                .message(delivery.getDeliveryDate() + " tarihli teslimatınız atlandı; uygun ücret düzeltmesi oluşturuldu.")
                 .referenceType("DELIVERY_CHANGE_REQUEST").referenceId(subscription.getId()).build());
         return toRequestResponse(history);
     }
@@ -223,6 +303,7 @@ public class DeliveryModificationService {
         return new DeliveryModificationRequestResponse(
                 history.getId(), history.getSubscription().getId(), history.getDelivery().getId(),
                 customer.getFirstName() + " " + customer.getLastName(), history.getDelivery().getDeliveryDate(),
+                history.getRequestType(),
                 history.getOldDeliveryTime(), history.getNewDeliveryTime(), history.getOldPersonCount(), history.getNewPersonCount(),
                 history.getOldAddress() == null ? null : history.getOldAddress().getId(), history.getNewAddress() == null ? null : history.getNewAddress().getId(),
                 formatAddress(history.getOldAddress()), formatAddress(history.getNewAddress()),
