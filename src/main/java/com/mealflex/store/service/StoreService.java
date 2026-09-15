@@ -168,7 +168,7 @@ public class StoreService {
                 .maxPersonCount(request.getMaxPersonCount())
                 .dailyCapacity(request.getDailyCapacity())
                 .changeCutoffTime(request.getChangeCutoffTime() == null ? LocalTime.of(17, 0) : request.getChangeCutoffTime())
-                .categories(validateLabels(request.getCategories(), STORE_CATEGORIES, "İşletme kategorisi"))
+                .categories(validateStoreCategories(request.getCategories()))
                 .productionAddress(request.getProductionAddress())
                 .addressTitle(request.getAddressTitle())
                 .city(request.getCity())
@@ -203,7 +203,7 @@ public class StoreService {
         applyAddress(store, request);
         store.setLogoUrl(request.getLogoUrl());
         store.setCoverImageUrl(request.getCoverImageUrl());
-        if (request.getCategories() != null) store.setCategories(validateLabels(request.getCategories(), STORE_CATEGORIES, "İşletme kategorisi"));
+        if (request.getCategories() != null) store.setCategories(validateStoreCategories(request.getCategories()));
 
         store = storeRepository.save(store);
 
@@ -711,6 +711,14 @@ public class StoreService {
         if (values == null) return new LinkedHashSet<>();
         if (!allowed.containsAll(values)) throw new BusinessException("INVALID_DISCOVERY_LABEL", label + " seçeneklerinden biri geçersiz.");
         return new LinkedHashSet<>(values);
+    }
+
+    private Set<String> validateStoreCategories(Set<String> values) {
+        Set<String> categories = validateLabels(values, STORE_CATEGORIES, "İşletme kategorisi");
+        if (categories.size() > 5) {
+            throw new BusinessException("STORE_CATEGORY_LIMIT_EXCEEDED", "Müşteriye gösterilmek üzere en fazla 5 etiket seçebilirsiniz.");
+        }
+        return categories;
     }
 
     private LocalDate nextAvailableDate(Long storeId) {

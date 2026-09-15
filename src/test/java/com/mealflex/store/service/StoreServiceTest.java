@@ -33,8 +33,10 @@ import java.time.ZoneId;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -113,6 +115,24 @@ class StoreServiceTest {
         assertThat(created.getMinPersonCount()).isEqualTo(2);
         assertThat(created.isTemporarilyClosed()).isTrue();
         verify(distanceRuleRepository).save(any());
+    }
+
+    @Test
+    void storeCategoriesAreLimitedToFiveCustomerFacingTags() {
+        SellerProfile seller = mock(SellerProfile.class);
+        when(sellerProfileRepository.findByUserId(99L)).thenReturn(Optional.of(seller));
+        CreateStoreRequest request = new CreateStoreRequest();
+        request.setName("Etiketli Mutfak");
+        request.setLatitude(BigDecimal.valueOf(39.92));
+        request.setLongitude(BigDecimal.valueOf(32.85));
+        request.setMaxDeliveryDistanceKm(5);
+        request.setCategories(Set.of("TURK_MUTFAGI", "EV_YEMEKLERI", "SAGLIKLI", "VEGAN", "IZGARA", "SULU_YEMEK"));
+        request.setDistanceRules(List.of(distanceRule(5, 2)));
+
+        assertThatThrownBy(() -> service.createStore(99L, request))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("STORE_CATEGORY_LIMIT_EXCEEDED"));
+        verify(storeRepository, never()).save(any());
     }
 
     @Test
