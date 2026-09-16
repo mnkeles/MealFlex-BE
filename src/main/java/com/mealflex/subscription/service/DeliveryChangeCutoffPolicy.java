@@ -4,6 +4,7 @@ import com.mealflex.common.exception.BusinessException;
 import com.mealflex.store.entity.Store;
 
 import java.time.LocalDate;
+import java.time.Instant;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -15,6 +16,16 @@ final class DeliveryChangeCutoffPolicy {
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
 
     private DeliveryChangeCutoffPolicy() {
+    }
+
+    static void requireSellerApprovalWindowOpen(LocalDate deliveryDate, LocalTime deliveryTime, Instant now) {
+        Instant deadline = ZonedDateTime.of(deliveryDate, deliveryTime, BUSINESS_TIME_ZONE)
+                .minusHours(2).toInstant();
+        if (now.isAfter(deadline)) {
+            throw new BusinessException("DELIVERY_APPROVAL_CUTOFF_PASSED",
+                    "Onay süresi doldu. Teslimat değişikliği ve yemek servisi iptal talepleri, "
+                            + "mevcut teslimat saatinden en az 2 saat önce onaylanmalıdır.");
+        }
     }
 
     static void requireChangeWindowOpen(Store store, LocalDate deliveryDate) {

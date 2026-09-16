@@ -23,6 +23,8 @@ import com.mealflex.subscription.repository.*;
 import com.mealflex.user.entity.User;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
@@ -64,6 +66,7 @@ class DeliveryModificationServiceTest {
         Menu menu=Menu.builder().store(store).name("Ev Menüsü").pricePerPerson(new BigDecimal("50.00")).active(true).build(); menu.setId(4L);
         subscription=Subscription.builder().customer(customer).store(store).menu(menu).address(address).pricePerPerson(new BigDecimal("50.00")).status(SubscriptionStatus.ACTIVE).totalAmount(new BigDecimal("500.00")).build(); subscription.setId(6L);
         delivery=SubscriptionDelivery.builder().subscription(subscription).address(address).menu(menu).personCount(5).deliveryDate(LocalDate.now().plusDays(4)).deliveryTime(LocalTime.NOON).status(DeliveryStatus.SCHEDULED).build(); delivery.setId(7L);
+        lenient().when(deliveryRepository.findByIdForChange(7L)).thenReturn(Optional.of(delivery));
     }
 
     @Test void personCountOnlyChangeCreatesPendingSellerRequest() {
@@ -326,6 +329,68 @@ class DeliveryModificationServiceTest {
         doThrow(new BusinessException("UNAUTHORIZED_ACCESS","Bu mağazaya erişim yetkiniz yok.")).when(storeAccessService).requireOwnedStore(77L,2L);
         assertThatThrownBy(()->service.approveRequest(77L,8L)).isInstanceOf(BusinessException.class).hasMessageContaining("yetkiniz yok");
         verify(deliveryRepository,never()).save(any()); verify(auditLogRepository,never()).save(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = DeliveryStatus.class, names = "SCHEDULED", mode = EnumSource.Mode.EXCLUDE)
+    void approvalRejectsNonScheduledDeliveriesWithoutFinancialSideEffects(DeliveryStatus status) {
+        delivery.setStatus(status);
+        assertApprovalBlockedForBothRequestTypes("INVALID_DELIVERY_STATUS");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SubscriptionStatus.class, names = {"ACTIVE", "APPROVED"}, mode = EnumSource.Mode.EXCLUDE)
+    void approvalRejectsInactiveSubscriptionsWithoutFinancialSideEffects(SubscriptionStatus status) {
+        subscription.setStatus(status);
+        assertApprovalBlockedForBothRequestTypes("INVALID_DELIVERY_STATUS");
+    }
+
+    @Test void approvalRejectsBothRequestTypesInsideTwoHourWindow() {
+        ZonedDateTime scheduled = ZonedDateTime.now(DeliveryChangeCutoffPolicy.BUSINESS_TIME_ZONE).plusMinutes(119);
+        delivery.setDeliveryDate(scheduled.toLocalDate());
+        delivery.setDeliveryTime(scheduled.toLocalTime());
+        assertApprovalBlockedForBothRequestTypes("DELIVERY_APPROVAL_CUTOFF_PASSED");
+    }
+
+    @Test void approvalRejectsPastScheduledDeliveries() {
+        delivery.setDeliveryDate(LocalDate.now(DeliveryChangeCutoffPolicy.BUSINESS_TIME_ZONE).minusDays(1));
+        assertApprovalBlockedForBothRequestTypes("DELIVERY_APPROVAL_CUTOFF_PASSED");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = DeliveryModificationRequestType.class)
+    void sellerCanApproveAfterCustomerCutoffWhenMoreThanTwoHoursRemain(DeliveryModificationRequestType type) {
+        ZonedDateTime scheduled = ZonedDateTime.now(DeliveryChangeCutoffPolicy.BUSINESS_TIME_ZONE).plusHours(3);
+        delivery.setDeliveryDate(scheduled.toLocalDate());
+        delivery.setDeliveryTime(scheduled.toLocalTime());
+        store.setChangeCutoffTime(LocalTime.MIDNIGHT);
+        DeliveryModificationHistory history = pendingHistory(scheduled.toLocalTime(), 5, BigDecimal.ZERO);
+        history.setId(8L);
+        history.setRequestType(type);
+        when(historyRepository.findById(8L)).thenReturn(Optional.of(history));
+
+        assertThat(service.approveRequest(9L, 8L).status()).isEqualTo(DeliveryModificationRequestStatus.APPROVED);
+        verify(deliveryRepository).findByIdForChange(7L);
+    }
+
+    private void assertApprovalBlockedForBothRequestTypes(String code) {
+        for (DeliveryModificationRequestType type : DeliveryModificationRequestType.values()) {
+            DeliveryModificationHistory history = pendingHistory(LocalTime.of(13, 0), 7,
+                    type == DeliveryModificationRequestType.CANCEL ? new BigDecimal("-250.00") : new BigDecimal("100.00"));
+            history.setId(8L);
+            history.setRequestType(type);
+            when(historyRepository.findById(8L)).thenReturn(Optional.of(history));
+            assertThatThrownBy(() -> service.approveRequest(9L, 8L))
+                    .isInstanceOfSatisfying(BusinessException.class,
+                            exception -> assertThat(exception.getCode()).isEqualTo(code));
+            assertThat(history.getRequestStatus()).isEqualTo(DeliveryModificationRequestStatus.PENDING);
+        }
+        verifyNoInteractions(paymentService, mealBalanceService, sellerPayoutService, storeCapacityService,
+                adjustmentRepository, notificationEventService, auditLogRepository);
+        verify(deliveryRepository, never()).save(any());
+        verify(subscriptionRepository, never()).save(any());
+        verify(historyRepository, never()).save(any());
+        assertThat(subscription.getTotalAmount()).isEqualByComparingTo("500.00");
     }
 
     private DeliveryModificationHistory pendingHistory(LocalTime newTime,int persons,BigDecimal difference) {

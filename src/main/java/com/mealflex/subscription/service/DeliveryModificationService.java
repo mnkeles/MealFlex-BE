@@ -89,7 +89,8 @@ public class DeliveryModificationService {
         if (!subscription.getId().equals(subscriptionId) || !subscription.getCustomer().getId().equals(userId)) {
             throw new BusinessException("UNAUTHORIZED_ACCESS", "Bu teslimat size ait değil.", HttpStatus.FORBIDDEN);
         }
-        validateApprovalWindow(subscription, delivery);
+        requireScheduledDelivery(subscription, delivery);
+        DeliveryChangeCutoffPolicy.requireChangeWindowOpen(subscription.getStore(), delivery.getDeliveryDate());
         if (historyRepository.existsByDeliveryIdAndRequestStatus(deliveryId, DeliveryModificationRequestStatus.PENDING)) {
             throw new BusinessException("DELIVERY_CHANGE_ALREADY_PENDING", "Bu teslimat için satıcı onayı bekleyen bir talep var.");
         }
@@ -145,7 +146,11 @@ public class DeliveryModificationService {
         if (history.getRequestStatus() != DeliveryModificationRequestStatus.PENDING) {
             throw new BusinessException("DELIVERY_CHANGE_ALREADY_DECIDED", "Bu değişiklik talebi daha önce karara bağlanmış.");
         }
-        SubscriptionDelivery delivery = history.getDelivery();
+        SubscriptionDelivery delivery = deliveryRepository.findByIdForChange(history.getDelivery().getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Teslimat", history.getDelivery().getId()));
+        requireScheduledDelivery(delivery.getSubscription(), delivery);
+        DeliveryChangeCutoffPolicy.requireSellerApprovalWindowOpen(
+                delivery.getDeliveryDate(), delivery.getDeliveryTime(), Instant.now());
         if (history.getRequestType() == DeliveryModificationRequestType.CANCEL) {
             return approveCancellationRequest(sellerUserId, history, subscription, delivery);
         }
@@ -280,12 +285,11 @@ public class DeliveryModificationService {
         }
         return new Prepared(s,d,address,menu,time,persons,oldAmount,newAmount,newAmount.subtract(oldAmount));
     }
-    private void validateApprovalWindow(Subscription subscription, SubscriptionDelivery delivery) {
+    private void requireScheduledDelivery(Subscription subscription, SubscriptionDelivery delivery) {
         if (!List.of(SubscriptionStatus.APPROVED, SubscriptionStatus.ACTIVE).contains(subscription.getStatus())
                 || delivery.getStatus() != DeliveryStatus.SCHEDULED) {
             throw new BusinessException("INVALID_DELIVERY_STATUS", "Teslimat artık değiştirilemez.");
         }
-        DeliveryChangeCutoffPolicy.requireChangeWindowOpen(subscription.getStore(), delivery.getDeliveryDate());
     }
 
     private DeliveryModificationRequestResponse toRequestResponse(DeliveryModificationHistory history) {
