@@ -17,5 +17,8 @@ class ProductionProfileConfigurationTest {
         assertThat(propertySource.getProperty("springdoc.api-docs.enabled")).isEqualTo(false);
         assertThat(propertySource.getProperty("springdoc.swagger-ui.enabled")).isEqualTo(false);
         assertThat(propertySource.getProperty("server.forward-headers-strategy")).isEqualTo("framework");
+        assertThat(propertySource.getProperty("app.payout.provider")).isEqualTo("${PAYOUT_PROVIDER}");
+        assertThat(propertySource.getProperty("app.runtime.allow-mock-financial-providers"))
+                .isEqualTo("${ALLOW_MOCK_FINANCIAL_PROVIDERS:false}");
     }
 }

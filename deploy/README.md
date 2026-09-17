@@ -2,6 +2,10 @@
 
 Bu paket gerçek ödeme almayan, PostGIS kullanmayan ilk staging provası içindir.
 Backend `prod` profiliyle; ödeme `MOCK`, mesafe hesabı `HAVERSINE` olarak çalışır.
+Bu staging Compose dosyası sahte ödeme ve hakediş sağlayıcılarına açıkça izin verir
+(`ALLOW_MOCK_FINANCIAL_PROVIDERS=true`). Canlı dağıtımda bu izin verilmez;
+`PAYMENT_PROVIDER` ve `PAYOUT_PROVIDER` gerçek sağlayıcılara ayarlanmadan backend
+başlamaz. Staging Compose dosyasını canlı ortam için doğrudan kullanmayın.
 Caddy, geçerli alan adı için TLS sertifikasını otomatik alır ve yeniler. PostgreSQL,
 backend ve frontend doğrudan internete açılmaz.
 

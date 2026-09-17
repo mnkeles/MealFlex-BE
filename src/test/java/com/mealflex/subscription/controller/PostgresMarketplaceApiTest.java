@@ -3,6 +3,8 @@ package com.mealflex.subscription.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mealflex.address.entity.Address;
+import com.mealflex.delivery.entity.DeliveryStatus;
+import com.mealflex.delivery.entity.SubscriptionDelivery;
 import com.mealflex.menu.entity.Menu;
 import com.mealflex.payment.entity.PaymentMethod;
 import com.mealflex.payment.entity.Payment;
@@ -16,6 +18,8 @@ import com.mealflex.store.entity.StoreDeliverySlot;
 import com.mealflex.store.entity.StoreDistanceRule;
 import com.mealflex.store.entity.StoreStatus;
 import com.mealflex.subscription.entity.Subscription;
+import com.mealflex.subscription.entity.DeliveryModificationHistory;
+import com.mealflex.subscription.entity.DeliveryModificationRequestStatus;
 import com.mealflex.subscription.service.SubscriptionDatePolicy;
 import com.mealflex.user.entity.Role;
 import com.mealflex.user.entity.User;
@@ -41,6 +45,8 @@ import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -79,6 +85,64 @@ class PostgresMarketplaceApiTest {
     @Autowired EntityManager entityManager;
     @Autowired PlatformTransactionManager transactionManager;
     @Autowired PaymentService paymentService;
+
+    @Test
+    void expiredSellerApprovalKeepsPendingCancellationAndDeliveryUnchanged() throws Exception {
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        Scenario scenario = tx.execute(status -> createScenario());
+        UserPrincipal customer = tx.execute(status -> principal(scenario.customerId()));
+        UserPrincipal seller = tx.execute(status -> principal(scenario.sellerId()));
+        String createBody = objectMapper.createObjectNode()
+                .put("storeId", scenario.storeId())
+                .put("menuId", scenario.menuId())
+                .put("addressId", scenario.addressId())
+                .put("paymentMethodId", scenario.paymentMethodId())
+                .put("commercialTermsAccepted", true)
+                .put("personCount", 5)
+                .put("deliveryTime", "12:00")
+                .put("startDate", scenario.startDate().toString())
+                .put("endDate", scenario.startDate().plusDays(4).toString())
+                .toString();
+        String created = mockMvc.perform(post("/v1/subscriptions")
+                        .with(as(customer)).header("Idempotency-Key", "qa-cutoff-" + UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content(createBody))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        long subscriptionId = objectMapper.readTree(created).path("id").asLong();
+        mockMvc.perform(post("/v1/seller/subscriptions/{id}/approve", subscriptionId).with(as(seller)))
+                .andExpect(status().isOk());
+        String detail = mockMvc.perform(get("/v1/subscriptions/{id}", subscriptionId).with(as(customer)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        long deliveryId = objectMapper.readTree(detail).path("deliveries").get(0).path("id").asLong();
+        String requested = mockMvc.perform(post("/v1/subscriptions/{id}/deliveries/{deliveryId}/cancel",
+                        subscriptionId, deliveryId).with(as(customer)).param("reason", "QA cutoff test"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andReturn().getResponse().getContentAsString();
+        long requestId = objectMapper.readTree(requested).path("id").asLong();
+
+        tx.executeWithoutResult(status -> {
+            SubscriptionDelivery delivery = entityManager.find(SubscriptionDelivery.class, deliveryId);
+            ZonedDateTime dueSoon = ZonedDateTime.now(ZoneId.of("Europe/Istanbul")).plusHours(1);
+            delivery.setDeliveryDate(dueSoon.toLocalDate());
+            delivery.setDeliveryTime(dueSoon.toLocalTime());
+            entityManager.flush();
+        });
+
+        mockMvc.perform(post("/v1/seller/delivery-change-requests/{requestId}/approve", requestId)
+                        .with(as(seller)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DELIVERY_APPROVAL_CUTOFF_PASSED"));
+
+        tx.executeWithoutResult(status -> {
+            assertThat(entityManager.find(SubscriptionDelivery.class, deliveryId).getStatus())
+                    .isEqualTo(DeliveryStatus.SCHEDULED);
+            assertThat(entityManager.find(DeliveryModificationHistory.class, requestId).getRequestStatus())
+                    .isEqualTo(DeliveryModificationRequestStatus.PENDING);
+            assertThat(entityManager.createQuery(
+                    "select count(a) from SubscriptionAdjustment a where a.delivery.id=:deliveryId", Long.class)
+                    .setParameter("deliveryId", deliveryId).getSingleResult()).isZero();
+        });
+    }
 
     @Test
     void customerRequestToSellerDeliveryAndPayoutUsesRealApiAndDatabase() throws Exception {

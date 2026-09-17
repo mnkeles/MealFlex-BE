@@ -50,6 +50,13 @@ SELECT email,'$2a$10$dXJ3SW6G7P50lGmMkkmwe.20cQQubK3.HZWzG3YB1tlRy.fqvM/BG',firs
        'CUSTOMER',true,now(),now(),'1.0',now(),'1.0',true,now(),now()
 FROM regional_customers ON CONFLICT (email) DO NOTHING;
 
+-- Bölgesel senaryolardaki destek taleplerini ve yönetici ekranlarını test etmek için.
+INSERT INTO users (email,password,first_name,last_name,phone,role,email_verified,email_verified_at,
+                   terms_accepted_at,terms_version,privacy_accepted_at,privacy_version,active,created_at,updated_at)
+VALUES ('admin@test.mealflex.local','$2a$10$dXJ3SW6G7P50lGmMkkmwe.20cQQubK3.HZWzG3YB1tlRy.fqvM/BG',
+        'Test','Yöneticisi','5557200001','ADMIN',true,now(),now(),'1.0',now(),'1.0',true,now(),now())
+ON CONFLICT (email) DO NOTHING;
+
 INSERT INTO seller_profiles (user_id,company_title,tax_number,tax_office,authorized_person,phone,bank_name,iban,created_at,updated_at)
 SELECT u.id,s.company_title,s.tax_number,s.district || ' VD',s.first_name || ' ' || s.last_name,s.phone,
        'Türkiye Cumhuriyeti Ziraat Bankası', 'TR' || lpad((700000000000000000000000 + row_number() over (order by s.email))::text,24,'0'), now(),now()

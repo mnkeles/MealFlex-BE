@@ -281,6 +281,7 @@ public class SubscriptionService {
                 .subscription(toResponse(subscription))
                 .addressTitle(subscription.getAddress().getTitle())
                 .deliveryAddress(formatDeliveryAddress(subscription.getAddress()))
+                .changeCutoffTime(subscription.getStore().getChangeCutoffTime())
                 .deliveries(deliveries)
                 .reviewed(reviewRepository.existsByCustomerIdAndSubscriptionId(userId, subscriptionId))
                 .build();

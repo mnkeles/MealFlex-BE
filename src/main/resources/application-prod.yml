@@ -61,6 +61,10 @@ app:
       callback-url: ${IYZICO_CALLBACK_URL:}
       card-management-callback-url: ${IYZICO_CARD_MANAGEMENT_CALLBACK_URL:}
   payout:
-    provider: ${PAYOUT_PROVIDER:MOCK}
+    provider: ${PAYOUT_PROVIDER}
+  runtime:
+    # Staging uses the prod profile with mock payments. Opt in there only;
+    # a real deployment must fail startup rather than simulate a transfer.
+    allow-mock-financial-providers: ${ALLOW_MOCK_FINANCIAL_PROVIDERS:false}
   verification:
     expose-code: false

@@ -217,6 +217,7 @@ class SubscriptionServiceTest {
 
         var detail = service.getCustomerSubscriptionDetail(10L, 50L);
 
+        assertThat(detail.getChangeCutoffTime()).isEqualTo(store.getChangeCutoffTime());
         assertThat(detail.getDeliveries()).singleElement().satisfies(result -> {
             assertThat(result.getCourierId()).isEqualTo(71L);
             assertThat(result.getCourierName()).isEqualTo("Mehmet Kurye");
